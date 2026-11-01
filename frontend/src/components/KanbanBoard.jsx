@@ -16,7 +16,14 @@ import {
 
 import { CSS } from "@dnd-kit/utilities";
 
-import { Trash2, Circle, Clock, CheckCircle2 } from "lucide-react";
+import {
+  Trash2,
+  Pencil,
+  Circle,
+  Clock,
+  CheckCircle2,
+  CalendarDays
+} from "lucide-react";
 
 const columns = [
   { id: "To Do", title: "To Do" },
@@ -37,8 +44,7 @@ const statusIcons = {
 };
 
 // Individual draggable task card
-function TaskCard({ task, onDeleteTask }) {
-
+function TaskCard({ task, onDeleteTask, onEditTask }) {
   const {
     attributes,
     listeners,
@@ -59,8 +65,20 @@ function TaskCard({ task, onDeleteTask }) {
 
   const StatusIcon = statusIcons[task.status];
 
-  return (
+  const isOverdue =
+    task.dueDate &&
+    new Date(task.dueDate) < new Date() &&
+    task.status !== "Completed";
 
+  const formattedDate = task.dueDate
+    ? new Date(task.dueDate).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric"
+      })
+    : null;
+
+  return (
     <div
       ref={setNodeRef}
       style={style}
@@ -68,31 +86,63 @@ function TaskCard({ task, onDeleteTask }) {
       {...listeners}
       className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm cursor-grab active:cursor-grabbing"
     >
-
-      <div className="flex justify-between items-start">
-
+      <div className="flex justify-between items-start gap-2">
         <h3 className="font-semibold text-slate-800">
           {task.title}
         </h3>
 
-        <button
-          type="button"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => onDeleteTask(task.id)}
-          className="text-slate-400 hover:text-red-500 cursor-pointer"
-          title="Delete task"
-        >
-          <Trash2 size={17} />
-        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditTask(task);
+            }}
+            className="text-slate-400 hover:text-blue-600 cursor-pointer"
+            title="Edit task"
+          >
+            <Pencil size={16} />
+          </button>
 
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteTask(task.id);
+            }}
+            className="text-slate-400 hover:text-red-500 cursor-pointer"
+            title="Delete task"
+          >
+            <Trash2 size={17} />
+          </button>
+        </div>
       </div>
+
+      {task.description && (
+        <p className="text-sm text-slate-500 mt-2">
+          {task.description}
+        </p>
+      )}
 
       <p className="text-sm text-slate-500 mt-3">
         {task.project}
       </p>
 
-      <div className="flex items-center justify-between mt-4">
+      {formattedDate && (
+        <div className={`flex items-center gap-2 mt-3 text-xs ${
+          isOverdue ? "text-red-600 font-semibold" : "text-slate-500"
+        }`}>
+          <CalendarDays size={15} />
+          <span>
+            {isOverdue ? "Overdue: " : "Due: "}
+            {formattedDate}
+          </span>
+        </div>
+      )}
 
+      <div className="flex items-center justify-between mt-4">
         <span
           className={`text-xs px-3 py-1 rounded-full ${priorityColors[task.priority]}`}
         >
@@ -100,28 +150,20 @@ function TaskCard({ task, onDeleteTask }) {
         </span>
 
         <StatusIcon size={18} className="text-blue-600" />
-
       </div>
-
     </div>
-
   );
 }
 
-
 // Individual Kanban column
-function KanbanColumn({ column, tasks, onDeleteTask }) {
-
+function KanbanColumn({ column, tasks, onDeleteTask, onEditTask }) {
   const { setNodeRef, isOver } = useDroppable({
     id: column.id
   });
 
   return (
-
     <div className="min-w-0">
-
       <div className="flex items-center justify-between mb-4">
-
         <h2 className="font-bold text-slate-800">
           {column.title}
         </h2>
@@ -129,7 +171,6 @@ function KanbanColumn({ column, tasks, onDeleteTask }) {
         <span className="bg-slate-200 text-slate-700 text-xs px-3 py-1 rounded-full">
           {tasks.length}
         </span>
-
       </div>
 
       <div
@@ -138,44 +179,32 @@ function KanbanColumn({ column, tasks, onDeleteTask }) {
           isOver ? "bg-blue-100" : "bg-slate-100"
         }`}
       >
-
         <SortableContext
           items={tasks.map((task) => task.id)}
           strategy={verticalListSortingStrategy}
         >
-
           {tasks.map((task) => (
-
             <TaskCard
               key={task.id}
               task={task}
               onDeleteTask={onDeleteTask}
+              onEditTask={onEditTask}
             />
-
           ))}
-
         </SortableContext>
 
         {tasks.length === 0 && (
-
           <p className="text-center text-sm text-slate-400 py-10">
             Drop tasks here
           </p>
-
         )}
-
       </div>
-
     </div>
-
   );
-
 }
 
-
 // Main Kanban board
-function KanbanBoard({ tasks, onStatusChange, onDeleteTask }) {
-
+function KanbanBoard({ tasks, onStatusChange, onDeleteTask, onEditTask }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -185,7 +214,6 @@ function KanbanBoard({ tasks, onStatusChange, onDeleteTask }) {
   );
 
   function handleDragEnd(event) {
-
     const { active, over } = event;
 
     if (!over) return;
@@ -196,14 +224,11 @@ function KanbanBoard({ tasks, onStatusChange, onDeleteTask }) {
 
     if (!draggedTask) return;
 
-    // Check whether dropped directly on a column
     let newStatus = columns.find(
       (column) => column.id === String(over.id)
     )?.id;
 
-    // Otherwise, check the task card it was dropped on
     if (!newStatus) {
-
       const targetTask = tasks.find(
         (task) => String(task.id) === String(over.id)
       );
@@ -211,50 +236,38 @@ function KanbanBoard({ tasks, onStatusChange, onDeleteTask }) {
       if (!targetTask) return;
 
       newStatus = targetTask.status;
-
     }
 
     if (draggedTask.status !== newStatus) {
       onStatusChange(draggedTask.id, newStatus);
     }
-
   }
 
   return (
-
     <DndContext
       sensors={sensors}
       collisionDetection={closestCorners}
       onDragEnd={handleDragEnd}
     >
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-
         {columns.map((column) => {
-
           const columnTasks = tasks.filter(
             (task) => task.status === column.id
           );
 
           return (
-
             <KanbanColumn
               key={column.id}
               column={column}
               tasks={columnTasks}
               onDeleteTask={onDeleteTask}
+              onEditTask={onEditTask}
             />
-
           );
-
         })}
-
       </div>
-
     </DndContext>
-
   );
-
 }
 
 export default KanbanBoard;
