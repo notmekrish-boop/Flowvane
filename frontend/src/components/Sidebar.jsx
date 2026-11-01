@@ -9,6 +9,7 @@ import {
   LogOut,
   Sparkles
 } from "lucide-react";
+import { NavLink } from "react-router-dom";
 
 function Sidebar() {
 
@@ -64,30 +65,43 @@ function Sidebar() {
 
       <nav className="flex flex-col gap-2">
 
-        {menuItems.map((item) => {
+  {menuItems.map((item) => {
 
-          const Icon = item.icon;
+    const Icon = item.icon;
 
-          return (
-            <button
-              key={item.name}
-              className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
-                item.name === "Dashboard"
-                  ? "bg-blue-600 text-white"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
-            >
+    const paths = {
+      "Dashboard": "/",
+      "My Projects": "/projects",
+      "My Tasks": "/tasks",
+      "Team": "/team",
+      "AI Assistant": "/ai-assistant"
+    };
 
-              <Icon size={19} />
+    return (
 
-              {item.name}
+      <NavLink
+        key={item.name}
+        to={paths[item.name]}
+        className={({ isActive }) =>
+          `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${
+            isActive
+              ? "bg-blue-600 text-white"
+              : "text-slate-600 hover:bg-slate-100"
+          }`
+        }
+      >
 
-            </button>
-          );
+        <Icon size={19} />
 
-        })}
+        {item.name}
 
-      </nav>
+      </NavLink>
+
+    );
+
+  })}
+
+</nav>
 
       {/* Bottom Navigation */}
       <div className="mt-auto flex flex-col gap-2">
