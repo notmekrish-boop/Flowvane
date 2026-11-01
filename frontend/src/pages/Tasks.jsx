@@ -1,18 +1,10 @@
 
 import { useState } from "react";
-
-import {
-  Plus,
-  Trash2,
-  X,
-  CheckCircle2,
-  Clock,
-  Circle
-} from "lucide-react";
+import { Plus, X } from "lucide-react";
+import KanbanBoard from "../components/KanbanBoard";
 
 function Tasks() {
 
-  // Initial task data
   const [tasks, setTasks] = useState([
     {
       id: 1,
@@ -58,7 +50,10 @@ function Tasks() {
       status: "To Do"
     };
 
-    setTasks([...tasks, newTask]);
+    setTasks((previousTasks) => [
+      ...previousTasks,
+      newTask
+    ]);
 
     setTitle("");
     setPriority("Medium");
@@ -68,8 +63,8 @@ function Tasks() {
   // Update task status
   function handleStatusChange(id, newStatus) {
 
-    setTasks(
-      tasks.map((task) =>
+    setTasks((previousTasks) =>
+      previousTasks.map((task) =>
         task.id === id
           ? { ...task, status: newStatus }
           : task
@@ -81,34 +76,35 @@ function Tasks() {
   // Delete task
   function handleDeleteTask(id) {
 
-    setTasks(
-      tasks.filter((task) => task.id !== id)
+    setTasks((previousTasks) =>
+      previousTasks.filter((task) => task.id !== id)
     );
 
   }
 
-  // Status icons
-  const statusIcons = {
-    "To Do": Circle,
-    "In Progress": Clock,
-    "Completed": CheckCircle2
-  };
+  // Calculate task statistics
+  const todoCount = tasks.filter(
+    (task) => task.status === "To Do"
+  ).length;
 
-  // Priority colors
-  const priorityColors = {
-    High: "bg-red-100 text-red-600",
-    Medium: "bg-orange-100 text-orange-600",
-    Low: "bg-green-100 text-green-600"
-  };
+  const progressCount = tasks.filter(
+    (task) => task.status === "In Progress"
+  ).length;
+
+  const completedCount = tasks.filter(
+    (task) => task.status === "Completed"
+  ).length;
 
   return (
 
     <div className="p-8">
 
-      {/* Header */}
+      {/* Page Header */}
+
       <div className="flex justify-between items-center mb-8">
 
         <div>
+
           <h1 className="text-3xl font-bold text-slate-800">
             My Tasks
           </h1>
@@ -116,6 +112,7 @@ function Tasks() {
           <p className="text-slate-500 mt-2">
             Organize and track your daily tasks.
           </p>
+
         </div>
 
         <button
@@ -123,13 +120,16 @@ function Tasks() {
           className="flex items-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700"
         >
           {showForm ? <X size={18} /> : <Plus size={18} />}
+
           {showForm ? "Close Form" : "Create Task"}
+
         </button>
 
       </div>
 
 
       {/* Create Task Form */}
+
       {showForm && (
 
         <form
@@ -143,7 +143,6 @@ function Tasks() {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
 
-            {/* Task title */}
             <div className="md:col-span-3">
 
               <label className="block text-sm mb-2">
@@ -156,12 +155,11 @@ function Tasks() {
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Enter task title"
                 required
-                className="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full border border-slate-200 rounded-xl px-4 py-3"
               />
 
             </div>
 
-            {/* Project */}
             <div>
 
               <label className="block text-sm mb-2">
@@ -173,16 +171,13 @@ function Tasks() {
                 onChange={(e) => setProject(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-4 py-3"
               >
-
                 <option>Website Redesign</option>
                 <option>Mobile Application</option>
                 <option>Marketing Campaign</option>
-
               </select>
 
             </div>
 
-            {/* Priority */}
             <div>
 
               <label className="block text-sm mb-2">
@@ -194,16 +189,13 @@ function Tasks() {
                 onChange={(e) => setPriority(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-4 py-3"
               >
-
                 <option>Low</option>
                 <option>Medium</option>
                 <option>High</option>
-
               </select>
 
             </div>
 
-            {/* Submit */}
             <div className="flex items-end">
 
               <button
@@ -223,126 +215,63 @@ function Tasks() {
 
 
       {/* Task Statistics */}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
 
-        {["To Do", "In Progress", "Completed"].map((status) => {
+        <div className="bg-white border rounded-2xl p-5">
 
-          const count = tasks.filter(
-            (task) => task.status === status
-          ).length;
+          <p className="text-slate-500">To Do</p>
 
-          return (
+          <h2 className="text-3xl font-bold mt-3">
+            {todoCount}
+          </h2>
 
-            <div
-              key={status}
-              className="bg-white border border-slate-200 rounded-2xl p-5"
-            >
+        </div>
 
-              <p className="text-sm text-slate-500">
-                {status}
-              </p>
+        <div className="bg-white border rounded-2xl p-5">
 
-              <h2 className="text-3xl font-bold text-slate-800 mt-3">
-                {count}
-              </h2>
+          <p className="text-slate-500">In Progress</p>
 
-            </div>
+          <h2 className="text-3xl font-bold mt-3">
+            {progressCount}
+          </h2>
 
-          );
+        </div>
 
-        })}
+        <div className="bg-white border rounded-2xl p-5">
+
+          <p className="text-slate-500">Completed</p>
+
+          <h2 className="text-3xl font-bold mt-3">
+            {completedCount}
+          </h2>
+
+        </div>
 
       </div>
 
 
-      {/* Task List */}
+      {/* Kanban Board */}
+
       <div className="bg-white border border-slate-200 rounded-2xl p-6">
 
-        <h2 className="text-xl font-bold text-slate-800 mb-5">
-          All Tasks ({tasks.length})
-        </h2>
+        <div className="mb-6">
 
-        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-slate-800">
+            Task Board
+          </h2>
 
-          {tasks.map((task) => {
-
-            const StatusIcon = statusIcons[task.status];
-
-            return (
-
-              <div
-                key={task.id}
-                className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 py-4"
-              >
-
-                <div className="flex items-start gap-3">
-
-                  <StatusIcon
-                    size={22}
-                    className="text-blue-600 mt-1"
-                  />
-
-                  <div>
-
-                    <h3 className="font-semibold text-slate-800">
-                      {task.title}
-                    </h3>
-
-                    <p className="text-sm text-slate-400 mt-1">
-                      {task.project}
-                    </p>
-
-                    <span className={`inline-block mt-2 px-3 py-1 rounded-full text-xs ${priorityColors[task.priority]}`}>
-                      {task.priority} Priority
-                    </span>
-
-                  </div>
-
-                </div>
-
-
-                <div className="flex items-center gap-4">
-
-                  {/* Change status */}
-                  <select
-                    value={task.status}
-                    onChange={(e) =>
-                      handleStatusChange(task.id, e.target.value)
-                    }
-                    className="border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                  >
-
-                    <option>To Do</option>
-                    <option>In Progress</option>
-                    <option>Completed</option>
-
-                  </select>
-
-
-                  {/* Delete */}
-                  <button
-                    onClick={() => handleDeleteTask(task.id)}
-                    className="text-slate-400 hover:text-red-500"
-                    title="Delete task"
-                  >
-                    <Trash2 size={19} />
-                  </button>
-
-                </div>
-
-              </div>
-
-            );
-
-          })}
+          <p className="text-sm text-slate-500 mt-1">
+            Drag and drop tasks to update their status.
+          </p>
 
         </div>
 
-        {tasks.length === 0 && (
-          <p className="text-center text-slate-400 py-8">
-            No tasks available. Create your first task!
-          </p>
-        )}
+        <KanbanBoard
+          tasks={tasks}
+          onStatusChange={handleStatusChange}
+          onDeleteTask={handleDeleteTask}
+        />
 
       </div>
 
