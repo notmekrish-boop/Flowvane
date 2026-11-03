@@ -8,6 +8,8 @@ import authRoutes from "./routes/auth.js";
 import projectRoutes from "./routes/projects.js";
 import { authenticateToken } from "./middleware/authMiddleware.js";
 import taskRoutes from "./routes/tasks.js";
+import notificationRoutes from "./routes/notifications.js";
+import aiRoutes from "./routes/ai.js";
 
 const app = express();
 
@@ -19,9 +21,12 @@ app.use(
 );
 
 app.use(express.json());
+
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", authenticateToken, projectRoutes);
 app.use("/api/tasks", authenticateToken, taskRoutes);
+app.use("/api/notifications", authenticateToken, notificationRoutes);
+app.use("/api/ai", authenticateToken, aiRoutes);
 
 // Basic health check
 app.get("/api/health", (req, res) => {

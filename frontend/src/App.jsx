@@ -1,4 +1,3 @@
-
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
 import Sidebar from "./components/Sidebar";
@@ -10,6 +9,8 @@ import Tasks from "./pages/Tasks";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ProjectDetails from "./pages/ProjectDetails";
+import Team from "./pages/Team";
+import AiAssistant from "./pages/AiAssistant";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
@@ -32,6 +33,8 @@ function ProtectedLayout() {
           <Route path="/projects" element={<Projects />} />
           <Route path="/projects/:id" element={<ProjectDetails />} />
           <Route path="/tasks" element={<Tasks />} />
+          <Route path="/team" element={<Team />} />
+          <Route path="/ai-assistant" element={<AiAssistant />} />
         </Routes>
       </div>
     </div>

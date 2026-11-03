@@ -6,7 +6,10 @@ import {
   CheckCircle2,
   Clock,
   Users,
-  ArrowUpRight
+  ArrowUpRight,
+  AlertTriangle,
+  TrendingUp,
+  CalendarDays
 } from "lucide-react";
 
 import { Link } from "react-router-dom";
@@ -83,6 +86,63 @@ function Dashboard() {
     (task) => task.status !== "COMPLETED"
   ).length;
 
+  const overdueTasks = tasks.filter(
+    (task) =>
+      task.status !== "COMPLETED" &&
+      task.dueDate &&
+      new Date(task.dueDate) < new Date(new Date().setHours(0, 0, 0, 0))
+  ).length;
+
+  const priorityCounts = {
+    HIGH: tasks.filter((task) => task.priority === "HIGH").length,
+    MEDIUM: tasks.filter((task) => task.priority === "MEDIUM").length,
+    LOW: tasks.filter((task) => task.priority === "LOW").length
+  };
+
+  const teamProductivity = Object.values(
+    tasks.reduce((members, task) => {
+      if (!task.assignee) return members;
+
+      const key = task.assignee.id;
+      if (!members[key]) {
+        members[key] = {
+          id: key,
+          name: task.assignee.name || task.assignee.email || "Team member",
+          total: 0,
+          completed: 0
+        };
+      }
+
+      members[key].total += 1;
+      if (task.status === "COMPLETED") members[key].completed += 1;
+      return members;
+    }, {})
+  ).sort((a, b) => b.completed - a.completed || b.total - a.total);
+
+  // Weekly task creation activity. The current API does not expose a
+  // completion timestamp, so this chart deliberately uses createdAt.
+  const weeklyActivity = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date();
+    day.setHours(0, 0, 0, 0);
+    day.setDate(day.getDate() - (6 - index));
+
+    const nextDay = new Date(day);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const count = tasks.filter((task) => {
+      const created = new Date(task.createdAt);
+      return created >= day && created < nextDay;
+    }).length;
+
+    return {
+      label: day.toLocaleDateString("en-IN", { weekday: "short" }),
+      count
+    };
+  });
+
+  const maxWeeklyCount = Math.max(1, ...weeklyActivity.map((day) => day.count));
+  const maxPriorityCount = Math.max(1, ...Object.values(priorityCounts));
+
   const stats = [
     {
       title: "Total Projects",
@@ -111,6 +171,13 @@ function Dashboard() {
       change: "Across all projects",
       icon: Users,
       color: "purple"
+    },
+    {
+      title: "Overdue Tasks",
+      value: overdueTasks,
+      change: "Past due and not completed",
+      icon: AlertTriangle,
+      color: "orange"
     }
   ];
 
@@ -216,6 +283,110 @@ function Dashboard() {
         })}
 
       </div>
+
+      {/* ANALYTICS OVERVIEW */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* PRIORITY DISTRIBUTION */}
+        <section className="bg-white border border-slate-200 rounded-2xl p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <TrendingUp size={20} className="text-blue-600" />
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Priority Distribution</h2>
+              <p className="text-xs text-slate-400 mt-1">Tasks grouped by priority</p>
+            </div>
+          </div>
+
+          <div className="space-y-5">
+            {[
+              { label: "High", key: "HIGH", color: "bg-red-500" },
+              { label: "Medium", key: "MEDIUM", color: "bg-orange-500" },
+              { label: "Low", key: "LOW", color: "bg-green-500" }
+            ].map((item) => (
+              <div key={item.key}>
+                <div className="flex justify-between text-sm mb-2">
+                  <span className="font-medium text-slate-600">{item.label}</span>
+                  <span className="text-slate-500">
+                    {priorityCounts[item.key]} ({tasks.length
+                      ? Math.round((priorityCounts[item.key] / tasks.length) * 100)
+                      : 0}%)
+                  </span>
+                </div>
+                <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full ${item.color} rounded-full transition-all`}
+                    style={{ width: `${(priorityCounts[item.key] / maxPriorityCount) * 100}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* WEEKLY TASK CREATION */}
+        <section className="bg-white border border-slate-200 rounded-2xl p-6">
+          <div className="flex items-center gap-2 mb-5">
+            <CalendarDays size={20} className="text-blue-600" />
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Weekly Activity</h2>
+              <p className="text-xs text-slate-400 mt-1">Tasks created in the last 7 days</p>
+            </div>
+          </div>
+
+          <div className="flex items-end justify-between gap-3 h-40 pt-3">
+            {weeklyActivity.map((day) => (
+              <div key={day.label} className="flex-1 h-full flex flex-col items-center justify-end gap-2">
+                <span className="text-xs text-slate-500">{day.count}</span>
+                <div className="w-full flex items-end justify-center h-28">
+                  <div
+                    className="w-full max-w-10 bg-blue-500 rounded-t-md transition-all"
+                    style={{
+                      height: `${day.count === 0 ? 3 : Math.max(8, (day.count / maxWeeklyCount) * 100)}%`
+                    }}
+                    title={`${day.count} task(s) created`}
+                  />
+                </div>
+                <span className="text-xs text-slate-400">{day.label}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      {/* TEAM PRODUCTIVITY */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-6">
+        <div className="flex justify-between items-center mb-5">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Team Productivity</h2>
+            <p className="text-sm text-slate-400 mt-1">Completed and assigned tasks by assignee</p>
+          </div>
+        </div>
+
+        {teamProductivity.length === 0 ? (
+          <p className="text-sm text-slate-400">No assigned tasks to measure yet.</p>
+        ) : (
+          <div className="space-y-4">
+            {teamProductivity.map((member) => (
+              <div key={member.id} className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-5">
+                <div className="sm:w-44 min-w-0">
+                  <p className="font-medium text-sm text-slate-700 truncate">{member.name}</p>
+                  <p className="text-xs text-slate-400">
+                    {member.completed} completed / {member.total} assigned
+                  </p>
+                </div>
+                <div className="flex-1 h-3 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-green-500 rounded-full"
+                    style={{ width: `${member.total ? (member.completed / member.total) * 100 : 0}%` }}
+                  />
+                </div>
+                <span className="text-sm font-semibold text-slate-600 sm:w-12 sm:text-right">
+                  {member.total ? Math.round((member.completed / member.total) * 100) : 0}%
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* Projects Section */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6">

@@ -14,7 +14,7 @@ import { useAuth } from "../context/AuthContext";
 const API_URL = "http://localhost:5000/api";
 
 function Projects() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState([]);
@@ -46,7 +46,6 @@ function Projects() {
     return result;
   }
 
-  // Fetch projects and tasks, then calculate progress
   useEffect(() => {
     async function fetchProjects() {
       setLoading(true);
@@ -73,12 +72,12 @@ function Projects() {
 
           return {
             ...project,
-            progress
+            progress,
+            canDelete: project.ownerId === user?.id
           };
         });
 
         setProjects(calculatedProjects);
-
       } catch (err) {
         setError(err.message);
       } finally {
@@ -86,12 +85,11 @@ function Projects() {
       }
     }
 
-    if (token) {
+    if (token && user) {
       fetchProjects();
     }
-  }, [token]);
+  }, [token, user?.id]);
 
-  // Create project
   async function handleCreateProject(e) {
     e.preventDefault();
 
@@ -110,14 +108,17 @@ function Projects() {
       });
 
       setProjects((previousProjects) => [
-        { ...result.project, progress: 0 },
+        {
+          ...result.project,
+          progress: 0,
+          canDelete: true
+        },
         ...previousProjects
       ]);
 
       setName("");
       setDescription("");
       setShowForm(false);
-
     } catch (err) {
       setError(err.message);
     } finally {
@@ -125,8 +126,11 @@ function Projects() {
     }
   }
 
-  // Delete project
   async function handleDeleteProject(id) {
+    const project = projects.find((item) => item.id === id);
+
+    if (!project?.canDelete) return;
+
     const confirmed = window.confirm(
       "Are you sure? All tasks inside this project will also be deleted."
     );
@@ -143,7 +147,6 @@ function Projects() {
       setProjects((previousProjects) =>
         previousProjects.filter((project) => project.id !== id)
       );
-
     } catch (err) {
       setError(err.message);
     }
@@ -159,10 +162,7 @@ function Projects() {
 
   return (
     <div className="p-8">
-
-      {/* Page Heading */}
       <div className="flex justify-between items-center mb-8">
-
         <div>
           <h1 className="text-3xl font-bold text-slate-800">
             My Projects
@@ -180,17 +180,14 @@ function Projects() {
           {showForm ? <X size={18} /> : <Plus size={18} />}
           {showForm ? "Close Form" : "Create Project"}
         </button>
-
       </div>
 
-      {/* Error Message */}
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-600 rounded-xl p-4 mb-6">
           {error}
         </div>
       )}
 
-      {/* Create Project Form */}
       {showForm && (
         <form
           onSubmit={handleCreateProject}
@@ -201,7 +198,6 @@ function Projects() {
           </h2>
 
           <div className="space-y-4">
-
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
                 Project Name
@@ -240,44 +236,38 @@ function Projects() {
             >
               {saving ? "Saving..." : "Save Project"}
             </button>
-
           </div>
         </form>
       )}
 
-      {/* Project Count */}
       <p className="text-sm text-slate-500 mb-5">
         Total Projects: <strong>{projects.length}</strong>
       </p>
 
-      {/* Project Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-
         {projects.map((project) => (
-
           <div
-             key={project.id}
+            key={project.id}
             onClick={() => navigate(`/projects/${project.id}`)}
             className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm cursor-pointer hover:shadow-md hover:border-blue-300 transition"
           >
-
             <div className="flex justify-between items-start">
-
               <div className="bg-blue-100 p-3 rounded-xl">
                 <FolderKanban className="text-blue-600" size={22} />
               </div>
 
-              <button
-                onClick={(e) => {
-                e.stopPropagation();
-                handleDeleteProject(project.id);
-             }}
-                className="text-slate-400 hover:text-red-500 transition"
-                title="Delete project"
-              >
-                <Trash2 size={19} />
-              </button>
-
+              {project.canDelete && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteProject(project.id);
+                  }}
+                  className="text-slate-400 hover:text-red-500 transition"
+                  title="Delete project"
+                >
+                  <Trash2 size={19} />
+                </button>
+              )}
             </div>
 
             <h2 className="text-lg font-bold text-slate-800 mt-5">
@@ -288,30 +278,21 @@ function Projects() {
               {project.description}
             </p>
 
-            {/* Dynamic Progress */}
             <div className="mt-6">
-
               <div className="flex justify-between text-sm mb-2">
-
-                <span className="text-slate-500">
-                  Progress
-                </span>
+                <span className="text-slate-500">Progress</span>
 
                 <span className="font-semibold">
                   {project.progress}%
                 </span>
-
               </div>
 
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-
                 <div
                   className="h-full bg-blue-600 rounded-full transition-all duration-500"
                   style={{ width: `${project.progress}%` }}
                 />
-
               </div>
-
             </div>
 
             <div className="mt-5">
@@ -319,17 +300,12 @@ function Projects() {
                 Active
               </span>
             </div>
-
           </div>
-
         ))}
-
       </div>
 
-      {/* Empty State */}
       {projects.length === 0 && (
         <div className="bg-white rounded-2xl p-10 text-center border border-slate-200">
-
           <FolderKanban size={40} className="mx-auto text-slate-400" />
 
           <h3 className="font-semibold text-slate-700 mt-4">
@@ -339,10 +315,8 @@ function Projects() {
           <p className="text-sm text-slate-400 mt-2">
             Create your first project to get started.
           </p>
-
         </div>
       )}
-
     </div>
   );
 }
