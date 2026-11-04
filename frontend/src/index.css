@@ -1,40 +1,351 @@
+
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+/* =========================================
+   FLOWVANE — OBSIDIAN GLASS DESIGN SYSTEM
+   ========================================= */
+
+:root {
+  color-scheme: light;
+
+  --fv-bg: #f5f5f8;
+  --fv-sidebar: #ffffff;
+  --fv-surface: #ffffff;
+  --fv-surface-raised: #fafafd;
+  --fv-border: #e4e4ec;
+
+  --fv-text: #292936;
+  --fv-text-secondary: #686878;
+  --fv-text-muted: #9292a1;
+
+  --fv-accent: #6258e8;
+  --fv-accent-hover: #5045d5;
+  --fv-accent-soft: #eeedff;
+  --fv-accent-glow: rgb(98 88 232 / 12%);
+
+  --fv-danger: #dc5265;
+  --fv-success: #269b75;
+  --fv-warning: #c58b35;
+
+  --fv-radius-sm: 8px;
+  --fv-radius-md: 12px;
+  --fv-radius-lg: 16px;
+  --fv-radius-xl: 20px;
+
+  --fv-shadow:
+    0 8px 30px rgb(25 25 45 / 6%);
+
+  --fv-transition:
+    180ms ease;
+}
+
+html.dark {
+  color-scheme: dark;
+
+  --fv-bg: #08090c;
+  --fv-sidebar: #101116;
+  --fv-surface: #15161c;
+  --fv-surface-raised: #1b1c24;
+  --fv-border: #292a32;
+
+  --fv-text: #c6c6d0;
+  --fv-text-secondary: #a3a3af;
+  --fv-text-muted: #92939e;
+
+  --fv-accent: #7068ff;
+  --fv-accent-hover: #8980ff;
+  --fv-accent-soft: rgb(112 104 255 / 13%);
+  --fv-accent-glow: rgb(112 104 255 / 18%);
+
+  --fv-danger: #fb7185;
+  --fv-success: #4adea5;
+  --fv-warning: #f5bd65;
+
+  --fv-shadow:
+    0 12px 35px rgb(0 0 0 / 25%);
+}
+
+/* =========================================
+   GLOBAL FOUNDATION
+   ========================================= */
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  min-height: 100%;
+  scroll-behavior: smooth;
+}
+
 body {
   margin: 0;
-  font-family: Inter, Arial, sans-serif;
-  background: #f8fafc;
+  min-height: 100vh;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  background: var(--fv-bg);
+  color: var(--fv-text);
+  transition:
+    background-color var(--fv-transition),
+    color var(--fv-transition);
 }
-/* TaskPilot theme layer. Dark is the default; users can switch from the profile menu. */
-html.dark body { background: #0b1220; color: #e2e8f0; }
-html.dark .app-shell { background: #0b1220 !important; }
-html.dark .bg-white { background-color: #111c2e !important; }
-html.dark .bg-slate-50 { background-color: #0b1220 !important; }
-html.dark .bg-slate-100 { background-color: #1e293b !important; }
-html.dark .bg-slate-200 { background-color: #334155 !important; }
-html.dark .text-slate-800 { color: #e5edf8 !important; }
-html.dark .text-slate-700 { color: #d4deeb !important; }
-html.dark .text-slate-600 { color: #bdc9d8 !important; }
-html.dark .text-slate-500 { color: #9aabc0 !important; }
-html.dark .text-slate-400 { color: #8495aa !important; }
-html.dark .border-slate-200 { border-color: #29384d !important; }
-html.dark .border-slate-100 { border-color: #223047 !important; }
-html.dark .border-slate-50 { border-color: #1c2a3e !important; }
-html.dark .hover\:bg-slate-50:hover { background-color: #1a2940 !important; }
-html.dark .hover\:bg-slate-100:hover { background-color: #223047 !important; }
-html.dark input, html.dark textarea, html.dark select { color: #e2e8f0; }
-html.dark input::placeholder, html.dark textarea::placeholder { color: #71839a; }
-html.dark .bg-blue-50 { background-color: #172c4b !important; }
-html.dark .bg-blue-50\/50 { background-color: rgb(23 44 75 / 0.5) !important; }
-html.dark .bg-blue-50\/70 { background-color: rgb(23 44 75 / 0.7) !important; }
-html.dark .bg-red-50 { background-color: #3a1d2a !important; }
-html.dark .border-red-200 { border-color: #713044 !important; }
-html.dark .text-red-700, html.dark .text-red-600 { color: #fda4af !important; }
-html.dark .sidebar { background-color: #0f1929 !important; }
-html.dark .sidebar .hover\:bg-red-50:hover { background-color: #3a1d2a !important; }
-html.dark .shadow-xl, html.dark .shadow-2xl { --tw-shadow-color: rgb(0 0 0 / 0.45); }
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+input,
+textarea,
+select {
+  transition:
+    border-color var(--fv-transition),
+    box-shadow var(--fv-transition),
+    background-color var(--fv-transition);
+}
+
+::selection {
+  background: var(--fv-accent);
+  color: white;
+}
+
+/* =========================================
+   ACCESSIBILITY
+   ========================================= */
+
+:focus-visible {
+  outline: 2px solid var(--fv-accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* =========================================
+   DARK THEME — LEGACY COMPATIBILITY
+   ========================================= */
+
+/* Main application surfaces */
+
+html.dark body,
+html.dark .app-shell {
+  background-color: var(--fv-bg) !important;
+  color: var(--fv-text);
+}
+
+html.dark .sidebar {
+  background-color: var(--fv-sidebar) !important;
+}
+
+/* Existing Tailwind backgrounds */
+
+html.dark .bg-white {
+  background-color: var(--fv-surface) !important;
+}
+
+html.dark .bg-slate-50 {
+  background-color: var(--fv-bg) !important;
+}
+
+html.dark .bg-slate-100 {
+  background-color: var(--fv-surface-raised) !important;
+}
+
+html.dark .bg-slate-200 {
+  background-color: #292a32 !important;
+}
+
+/* Existing Tailwind text */
+
+html.dark .text-slate-800,
+html.dark .text-slate-700 {
+  color: var(--fv-text) !important;
+}
+
+html.dark .text-slate-600 {
+  color: var(--fv-text-secondary) !important;
+}
+
+html.dark .text-slate-500,
+html.dark .text-slate-400 {
+  color: var(--fv-text-muted) !important;
+}
+
+/* Borders */
+
+html.dark .border-slate-200 {
+  border-color: var(--fv-border) !important;
+}
+
+html.dark .border-slate-100,
+html.dark .border-slate-50 {
+  border-color: rgb(198 198 208 / 7%) !important;
+}
+
+/* Hover states */
+
+html.dark .hover\:bg-slate-50:hover {
+  background-color: rgb(255 255 255 / 5%) !important;
+}
+
+html.dark .hover\:bg-slate-100:hover {
+  background-color: rgb(255 255 255 / 8%) !important;
+}
+
+/* Indigo replaces legacy blue accents */
+
+html.dark .bg-blue-50,
+html.dark .bg-blue-50\/50,
+html.dark .bg-blue-50\/70 {
+  background-color: var(--fv-accent-soft) !important;
+}
+
+html.dark .text-blue-600,
+html.dark .text-blue-700,
+html.dark .text-blue-800 {
+  color: var(--fv-accent-hover) !important;
+}
+
+html.dark .border-blue-100,
+html.dark .border-blue-200 {
+  border-color: rgb(112 104 255 / 25%) !important;
+}
+
+/* Form controls */
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  color: var(--fv-text);
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: var(--fv-text-muted);
+}
+
+/* Danger states */
+
+html.dark .bg-red-50 {
+  background-color: rgb(251 113 133 / 10%) !important;
+}
+
+html.dark .border-red-200 {
+  border-color: rgb(251 113 133 / 30%) !important;
+}
+
+html.dark .text-red-700,
+html.dark .text-red-600 {
+  color: var(--fv-danger) !important;
+}
+
+html.dark .sidebar .hover\:bg-red-50:hover {
+  background-color: rgb(251 113 133 / 12%) !important;
+}
+
+/* Shadows */
+
+html.dark .shadow-xl,
+html.dark .shadow-2xl {
+  --tw-shadow-color: rgb(0 0 0 / 35%);
+}
+
+/* =========================================
+   SHARED DESIGN UTILITIES
+   ========================================= */
+
+.fv-surface {
+  background: var(--fv-surface);
+  border: 1px solid var(--fv-border);
+  border-radius: var(--fv-radius-lg);
+  box-shadow: var(--fv-shadow);
+}
+
+.fv-glass {
+  background: rgb(255 255 255 / 4%);
+  border: 1px solid rgb(198 198 208 / 10%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-radius: var(--fv-radius-lg);
+}
+
+.fv-accent {
+  color: var(--fv-accent);
+}
+
+.fv-accent-surface {
+  background: var(--fv-accent-soft);
+}
+
+.fv-focus-ring:focus-visible {
+  outline: 2px solid var(--fv-accent);
+  outline-offset: 3px;
+}
+
+/* =========================================
+   FLOWVANE — LEGACY BLUE NEUTRALISATION
+   ========================================= */
+
+html.dark .bg-blue-600,
+html.dark .bg-blue-700,
+html.dark .hover\:bg-blue-700:hover {
+  background-color: #292a32 !important;
+  color: #c6c6d0 !important;
+}
+
+html.dark .bg-blue-500,
+html.dark .hover\:bg-blue-500:hover {
+  background-color: #92939e !important;
+}
+
+html.dark .bg-blue-100,
+html.dark .bg-blue-50,
+html.dark .bg-blue-50\/50,
+html.dark .bg-blue-50\/70 {
+  background-color: #1b1c22 !important;
+}
+
+html.dark .text-blue-800,
+html.dark .text-blue-700,
+html.dark .text-blue-600 {
+  color: #c6c6d0 !important;
+}
+
+html.dark .border-blue-500,
+html.dark .border-blue-300,
+html.dark .border-blue-200,
+html.dark .border-blue-100 {
+  border-color: #3a3b43 !important;
+}
+
+html.dark .hover\:border-blue-300:hover,
+html.dark .hover\:border-blue-200:hover {
+  border-color: #555660 !important;
+}
+
+html.dark .hover\:text-blue-600:hover,
+html.dark .hover\:text-blue-800:hover {
+  color: #e0e0e5 !important;
+}
+
+html.dark .focus\:ring-blue-500:focus {
+  --tw-ring-color: #8980ff;
+}
+
+html.dark .focus\:border-blue-400:focus {
+  border-color: #8980ff;
+}
