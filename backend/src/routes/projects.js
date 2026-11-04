@@ -306,6 +306,59 @@ router.delete("/:id/members/:memberId", async (req, res) => {
   }
 });
 
+// DASHBOARD ANALYTICS: task activity for projects visible to the signed-in user
+// This endpoint returns recorded events only; it does not infer historical completions.
+router.get("/analytics", async (req, res) => {
+  try {
+    const accessibleProjects = await prisma.project.findMany({
+      where: {
+        OR: [
+          { ownerId: req.userId },
+          { members: { some: { userId: req.userId } } }
+        ]
+      },
+      select: { id: true }
+    });
+
+    const projectIds = accessibleProjects.map((project) => project.id);
+
+    if (projectIds.length === 0) {
+      return res.status(200).json({ success: true, activities: [] });
+    }
+
+    const activities = await prisma.taskActivity.findMany({
+      where: {
+        task: { projectId: { in: projectIds } }
+      },
+      include: {
+        task: {
+          select: {
+            id: true,
+            title: true,
+            projectId: true
+          }
+        },
+        user: {
+          select: { id: true, name: true }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      take: 2000
+    });
+
+    return res.status(200).json({
+      success: true,
+      activities
+    });
+  } catch (error) {
+    console.error("Fetch dashboard analytics error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to fetch dashboard analytics."
+    });
+  }
+});
+
 // GET SINGLE PROJECT: all project members can view
 router.get("/:id", async (req, res) => {
   try {

@@ -23,6 +23,7 @@ function Dashboard() {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [teamMembers, setTeamMembers] = useState(0);
+  const [activities, setActivities] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -38,13 +39,15 @@ function Dashboard() {
           Authorization: `Bearer ${token}`
         };
 
-        const [projectResponse, taskResponse] = await Promise.all([
+        const [projectResponse, taskResponse, analyticsResponse] = await Promise.all([
           fetch(`${API_URL}/projects`, { headers }),
-          fetch(`${API_URL}/tasks`, { headers })
+          fetch(`${API_URL}/tasks`, { headers }),
+          fetch(`${API_URL}/projects/analytics`, { headers })
         ]);
 
         const projectResult = await projectResponse.json();
         const taskResult = await taskResponse.json();
+        const analyticsResult = await analyticsResponse.json();
 
         if (!projectResponse.ok) {
           throw new Error(projectResult.message || "Unable to fetch projects.");
@@ -54,8 +57,13 @@ function Dashboard() {
           throw new Error(taskResult.message || "Unable to fetch tasks.");
         }
 
-        setProjects(projectResult.projects);
-        setTasks(taskResult.tasks);
+        if (!analyticsResponse.ok) {
+          throw new Error(analyticsResult.message || "Unable to fetch analytics.");
+        }
+
+        setProjects(projectResult.projects || []);
+        setTasks(taskResult.tasks || []);
+        setActivities(analyticsResult.activities || []);
 
         // Count project memberships across all projects
         const memberCount = projectResult.projects.reduce(
@@ -119,29 +127,60 @@ function Dashboard() {
     }, {})
   ).sort((a, b) => b.completed - a.completed || b.total - a.total);
 
-  // Weekly task creation activity. The current API does not expose a
-  // completion timestamp, so this chart deliberately uses createdAt.
-  const weeklyActivity = Array.from({ length: 7 }, (_, index) => {
-    const day = new Date();
-    day.setHours(0, 0, 0, 0);
-    day.setDate(day.getDate() - (6 - index));
+  // Build daily activity trends from persisted task events.
+  // A completion is counted only when the activity log records a transition to COMPLETED.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
+  const getLastSevenDays = (offsetDays = 0) => Array.from({ length: 7 }, (_, index) => {
+    const day = new Date(today);
+    day.setDate(today.getDate() - (6 - index) - offsetDays);
     const nextDay = new Date(day);
     nextDay.setDate(nextDay.getDate() + 1);
 
-    const count = tasks.filter((task) => {
+    const createdCount = tasks.filter((task) => {
       const created = new Date(task.createdAt);
       return created >= day && created < nextDay;
     }).length;
 
+    const completedCount = activities.filter((activity) => {
+      const eventDate = new Date(activity.createdAt);
+      const details = String(activity.details || "");
+      const marksCompletion =
+        activity.type === "TASK_STATUS_CHANGED" &&
+        /→\s*COMPLETED\b/i.test(details);
+      return marksCompletion && eventDate >= day && eventDate < nextDay;
+    }).length;
+
     return {
+      date: day,
       label: day.toLocaleDateString("en-IN", { weekday: "short" }),
-      count
+      created: createdCount,
+      completed: completedCount
     };
   });
 
-  const maxWeeklyCount = Math.max(1, ...weeklyActivity.map((day) => day.count));
+  const weeklyActivity = getLastSevenDays(0);
+  const previousWeekActivity = getLastSevenDays(7);
+  const completedThisWeek = weeklyActivity.reduce((sum, day) => sum + day.completed, 0);
+  const completedPreviousWeek = previousWeekActivity.reduce((sum, day) => sum + day.completed, 0);
+  const createdThisWeek = weeklyActivity.reduce((sum, day) => sum + day.created, 0);
+  const createdPreviousWeek = previousWeekActivity.reduce((sum, day) => sum + day.created, 0);
+  const completionChange = completedThisWeek - completedPreviousWeek;
+  const creationChange = createdThisWeek - createdPreviousWeek;
+  const maxWeeklyCount = Math.max(
+    1,
+    ...weeklyActivity.map((day) => Math.max(day.created, day.completed))
+  );
   const maxPriorityCount = Math.max(1, ...Object.values(priorityCounts));
+  const statusCounts = {
+    TODO: tasks.filter((task) => task.status === "TODO").length,
+    IN_PROGRESS: tasks.filter((task) => task.status === "IN_PROGRESS").length,
+    COMPLETED: completedTasks
+  };
+  const completionRate = tasks.length
+    ? Math.round((completedTasks / tasks.length) * 100)
+    : 0;
 
   const stats = [
     {
@@ -334,15 +373,15 @@ function Dashboard() {
 
           <div className="flex items-end justify-between gap-3 h-40 pt-3">
             {weeklyActivity.map((day) => (
-              <div key={day.label} className="flex-1 h-full flex flex-col items-center justify-end gap-2">
-                <span className="text-xs text-slate-500">{day.count}</span>
+              <div key={day.date.toISOString()} className="flex-1 h-full flex flex-col items-center justify-end gap-2">
+                <span className="text-xs text-slate-500">{day.created}</span>
                 <div className="w-full flex items-end justify-center h-28">
                   <div
                     className="w-full max-w-10 bg-blue-500 rounded-t-md transition-all"
                     style={{
-                      height: `${day.count === 0 ? 3 : Math.max(8, (day.count / maxWeeklyCount) * 100)}%`
+                      height: `${day.created === 0 ? 3 : Math.max(8, (day.created / maxWeeklyCount) * 100)}%`
                     }}
-                    title={`${day.count} task(s) created`}
+                    title={`${day.created} task(s) created`}
                   />
                 </div>
                 <span className="text-xs text-slate-400">{day.label}</span>
@@ -351,6 +390,106 @@ function Dashboard() {
           </div>
         </section>
       </div>
+
+      {/* PERFORMANCE ANALYTICS */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">Performance Analytics</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              Trends calculated from your projects, tasks, and recorded activity.
+            </p>
+          </div>
+          <span className="text-xs text-slate-400">Last 7 days vs previous 7 days</span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
+            <p className="text-sm text-slate-500">Completion rate</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">{completionRate}%</p>
+            <p className="text-xs text-slate-400 mt-1">{completedTasks} of {tasks.length} tasks completed</p>
+          </div>
+          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
+            <p className="text-sm text-slate-500">Completed this week</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">{completedThisWeek}</p>
+            <p className={`text-xs mt-1 ${completionChange >= 0 ? "text-green-600" : "text-red-600"}`}>
+              {completionChange > 0 ? `+${completionChange}` : completionChange} vs previous week ({completedPreviousWeek})
+            </p>
+          </div>
+          <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
+            <p className="text-sm text-slate-500">Tasks created this week</p>
+            <p className="text-2xl font-bold text-slate-800 mt-1">{createdThisWeek}</p>
+            <p className={`text-xs mt-1 ${creationChange >= 0 ? "text-blue-600" : "text-orange-600"}`}>
+              {creationChange > 0 ? `+${creationChange}` : creationChange} vs previous week ({createdPreviousWeek})
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="border border-slate-200 rounded-xl p-5">
+            <h3 className="font-semibold text-slate-800">Task status breakdown</h3>
+            <p className="text-xs text-slate-400 mt-1">Current status of all accessible tasks</p>
+            <div className="h-4 flex overflow-hidden rounded-full bg-slate-100 mt-5">
+              {[
+                { key: "COMPLETED", color: "bg-green-500" },
+                { key: "IN_PROGRESS", color: "bg-blue-500" },
+                { key: "TODO", color: "bg-slate-300" }
+              ].map((item) => (
+                <div
+                  key={item.key}
+                  className={item.color}
+                  style={{ width: `${tasks.length ? (statusCounts[item.key] / tasks.length) * 100 : 0}%` }}
+                  title={`${item.key.replace("_", " ")}: ${statusCounts[item.key]}`}
+                />
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-3 mt-4">
+              {[
+                ["Completed", statusCounts.COMPLETED, "bg-green-500"],
+                ["In progress", statusCounts.IN_PROGRESS, "bg-blue-500"],
+                ["To do", statusCounts.TODO, "bg-slate-300"]
+              ].map(([label, value, color]) => (
+                <div key={label} className="flex items-center gap-2 text-sm">
+                  <span className={`w-2.5 h-2.5 rounded-full ${color}`} />
+                  <span className="text-slate-500">{label}</span>
+                  <strong className="text-slate-800 ml-auto">{value}</strong>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border border-slate-200 rounded-xl p-5">
+            <h3 className="font-semibold text-slate-800">Weekly task trends</h3>
+            <p className="text-xs text-slate-400 mt-1">Created tasks and recorded completions per day</p>
+            <div className="flex items-end justify-between gap-2 h-40 mt-4">
+              {weeklyActivity.map((day) => (
+                <div key={day.date.toISOString()} className="flex-1 h-full flex flex-col items-center justify-end gap-2 min-w-0">
+                  <div className="flex items-end justify-center gap-1 h-28 w-full">
+                    <div
+                      className="w-3 sm:w-5 rounded-t bg-blue-500"
+                      style={{ height: `${day.created ? Math.max(5, (day.created / maxWeeklyCount) * 100) : 2}%` }}
+                      title={`${day.created} created`}
+                    />
+                    <div
+                      className="w-3 sm:w-5 rounded-t bg-green-500"
+                      style={{ height: `${day.completed ? Math.max(5, (day.completed / maxWeeklyCount) * 100) : 2}%` }}
+                      title={`${day.completed} completed`}
+                    />
+                  </div>
+                  <span className="text-xs text-slate-400">{day.label}</span>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-4 mt-3 text-xs text-slate-500">
+              <span className="flex items-center gap-2"><i className="w-2.5 h-2.5 rounded-full bg-blue-500" />Created</span>
+              <span className="flex items-center gap-2"><i className="w-2.5 h-2.5 rounded-full bg-green-500" />Completed</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-3">
+              Completion bars use recorded status-change events; missing historical events are not estimated.
+            </p>
+          </div>
+        </div>
+      </section>
 
       {/* TEAM PRODUCTIVITY */}
       <section className="bg-white border border-slate-200 rounded-2xl p-6">
