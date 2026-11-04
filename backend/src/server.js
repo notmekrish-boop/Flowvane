@@ -12,6 +12,8 @@ import notificationRoutes from "./routes/notifications.js";
 import aiRoutes from "./routes/ai.js";
 import conversationRoutes from "./routes/conversations.js";
 import memoryRoutes from "./routes/memories.js";
+import profileRoutes from "./routes/profile.js";
+import notesRoutes from "./routes/notes.js";
 
 const app = express();
 
@@ -22,7 +24,7 @@ app.use(
   })
 );
 
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", authenticateToken, projectRoutes);
@@ -31,6 +33,8 @@ app.use("/api/notifications", authenticateToken, notificationRoutes);
 app.use("/api/ai", authenticateToken, aiRoutes);
 app.use("/api/conversations", authenticateToken, conversationRoutes);
 app.use("/api/memories", authenticateToken, memoryRoutes);
+app.use("/api/profile", authenticateToken, profileRoutes);
+app.use("/api/notes", authenticateToken, notesRoutes);
 
 // Basic health check
 app.get("/api/health", (req, res) => {

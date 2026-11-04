@@ -11,14 +11,19 @@ import {
   ClipboardList,
   FolderPlus,
   ListPlus,
-  ChevronDown
+  ChevronDown,
+  UserRound,
+  Sun,
+  Moon,
+  LogOut,
+  Camera,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 
 const API_URL = "http://localhost:5000/api";
 
 function Navbar() {
-  const { user } = useAuth();
+  const { user, token, updateUser, logout } = useAuth();
   const navigate = useNavigate();
 
   const [notifications, setNotifications] = useState([]);
@@ -33,6 +38,12 @@ function Navbar() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [profileName, setProfileName] = useState(user?.name || "");
+  const [profileError, setProfileError] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [theme, setTheme] = useState(() => localStorage.getItem("taskpilot-theme") || "dark");
 
   const [projectForm, setProjectForm] = useState({
     name: "",
@@ -49,6 +60,40 @@ function Navbar() {
 
   const userName = user?.name || "User";
   const userInitial = userName.charAt(0).toUpperCase();
+
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    localStorage.setItem("taskpilot-theme", theme);
+  }, [theme]);
+
+  const handleProfileSave = async (avatarUrl) => {
+    try {
+      setProfileSaving(true);
+      setProfileError("");
+      const response = await fetch(`${API_URL}/profile/me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: profileName, ...(avatarUrl !== undefined ? { avatarUrl } : {}) })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Unable to update profile.");
+      updateUser({ ...user, ...data.user });
+      setShowProfileEditor(false);
+    } catch (error) { setProfileError(error.message); }
+    finally { setProfileSaving(false); }
+  };
+
+  const handleAvatarChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setProfileError("Choose an image file."); return; }
+    if (file.size > 2 * 1024 * 1024) { setProfileError("Image must be 2 MB or smaller."); return; }
+    const reader = new FileReader();
+    reader.onload = () => handleProfileSave(reader.result);
+    reader.readAsDataURL(file);
+  };
+
+  const handleLogout = () => { logout(); navigate("/login", { replace: true }); };
 
   const getToken = () => localStorage.getItem("token");
 
@@ -88,6 +133,14 @@ function Navbar() {
 
     return () => clearInterval(interval);
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!token) return;
+    fetch(`${API_URL}/profile/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => { if (data?.user) updateUser({ ...user, ...data.user }); })
+      .catch((error) => console.error("Profile load error:", error));
+  }, [token]);
 
   // Fetch projects for task creation
   const fetchProjects = async () => {
@@ -553,26 +606,27 @@ function Navbar() {
             )}
           </div>
 
-          {/* User Profile */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold">
-              {userInitial}
-            </div>
-
-            <div>
-              <p className="text-sm font-semibold text-slate-800">
-                {userName}
-              </p>
-
-              <p className="text-xs text-slate-400">
-                {user?.email || "Signed in"}
-              </p>
-            </div>
+          {/* User Profile Dropdown */}
+          <div className="relative">
+            <button type="button" onClick={() => { setShowProfileMenu((v) => !v); setShowCreateMenu(false); setShowNotifications(false); }} className="flex items-center gap-3 rounded-xl p-1.5 hover:bg-slate-100 transition" aria-label="Open profile menu">
+              {user?.avatarUrl ? <img src={user.avatarUrl} alt="Profile" className="w-10 h-10 rounded-full object-cover" /> : <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold">{userInitial}</div>}
+              <div className="text-left hidden sm:block"><p className="text-sm font-semibold text-slate-800">{userName}</p><p className="text-xs text-slate-400">{user?.email || "Signed in"}</p></div>
+              <ChevronDown size={15} className="text-slate-500" />
+            </button>
+            {showProfileMenu && <div className="absolute right-0 top-14 w-64 bg-white border border-slate-200 rounded-xl shadow-xl py-2 z-[70]">
+              <div className="px-4 py-3 border-b border-slate-100 flex items-center gap-3">{user?.avatarUrl ? <img src={user.avatarUrl} alt="" className="w-10 h-10 rounded-full object-cover"/> : <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold">{userInitial}</div>}<div className="min-w-0"><p className="font-semibold text-sm text-slate-800 truncate">{userName}</p><p className="text-xs text-slate-400 truncate">{user?.email}</p></div></div>
+              <button onClick={() => { setProfileName(user?.name || ""); setProfileError(""); setShowProfileEditor(true); setShowProfileMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50"><UserRound size={17}/>Edit profile</button>
+              <div className="px-4 py-3 flex items-center justify-between text-sm text-slate-700"><span className="flex items-center gap-3">{theme === "dark" ? <Moon size={17}/> : <Sun size={17}/>}Appearance</span><button onClick={() => setTheme((v) => v === "dark" ? "light" : "dark")} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{theme === "dark" ? "Dark" : "Light"}</button></div>
+              <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-600 hover:bg-red-50 border-t border-slate-100"><LogOut size={17}/>Logout</button>
+            </div>}
           </div>
         </div>
       </header>
 
-      {/* Create Project / Task Modal */}
+      {/* Profile Editor */}
+      {showProfileEditor && <div className="fixed inset-0 z-[110] bg-black/50 flex items-center justify-center p-4" onClick={() => setShowProfileEditor(false)}><div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6" onClick={(e) => e.stopPropagation()}><div className="flex items-center justify-between mb-5"><h2 className="text-xl font-bold text-slate-800">Edit profile</h2><button onClick={() => setShowProfileEditor(false)} className="text-slate-400 hover:text-slate-700"><X size={20}/></button></div><div className="flex items-center gap-4 mb-5">{user?.avatarUrl ? <img src={user.avatarUrl} alt="Profile" className="w-16 h-16 rounded-full object-cover"/> : <div className="w-16 h-16 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xl font-bold">{userInitial}</div>}<label className="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"><Camera size={16}/>Upload avatar<input type="file" accept="image/png,image/jpeg,image/webp,image/gif" className="hidden" onChange={handleAvatarChange}/></label></div><label className="block text-sm font-medium text-slate-600 mb-2">Display name</label><input value={profileName} onChange={(e) => setProfileName(e.target.value)} maxLength={80} className="w-full border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500"/>{profileError && <p className="text-sm text-red-600 mt-3">{profileError}</p>}<div className="flex justify-end gap-2 mt-6"><button onClick={() => setShowProfileEditor(false)} className="px-4 py-2 rounded-lg text-slate-600 hover:bg-slate-100">Cancel</button><button disabled={profileSaving} onClick={() => handleProfileSave()} className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">{profileSaving ? "Saving…" : "Save changes"}</button></div></div></div>}
+
+            {/* Create Project / Task Modal */}
       {modalType && (
         <div
           className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4"

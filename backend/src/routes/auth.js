@@ -91,6 +91,7 @@ router.post("/register", async (req, res) => {
         id: true,
         name: true,
         email: true,
+        avatarUrl: true,
         createdAt: true
       }
     });
@@ -176,6 +177,7 @@ router.post("/login", async (req, res) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        avatarUrl: user.avatarUrl,
         createdAt: user.createdAt
       }
     });

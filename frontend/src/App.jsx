@@ -11,6 +11,7 @@ import Register from "./pages/Register";
 import ProjectDetails from "./pages/ProjectDetails";
 import Team from "./pages/Team";
 import AiAssistant from "./pages/AiAssistant";
+import Notes from "./pages/Notes";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 
@@ -22,7 +23,7 @@ function ProtectedLayout() {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="app-shell flex min-h-screen bg-slate-50">
       <Sidebar />
 
       <div className="flex-1 min-w-0">
@@ -35,6 +36,7 @@ function ProtectedLayout() {
           <Route path="/tasks" element={<Tasks />} />
           <Route path="/team" element={<Team />} />
           <Route path="/ai-assistant" element={<AiAssistant />} />
+          <Route path="/notes" element={<Notes />} />
         </Routes>
       </div>
     </div>

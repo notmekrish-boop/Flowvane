@@ -10,3 +10,31 @@ body {
   font-family: Inter, Arial, sans-serif;
   background: #f8fafc;
 }
+/* TaskPilot theme layer. Dark is the default; users can switch from the profile menu. */
+html.dark body { background: #0b1220; color: #e2e8f0; }
+html.dark .app-shell { background: #0b1220 !important; }
+html.dark .bg-white { background-color: #111c2e !important; }
+html.dark .bg-slate-50 { background-color: #0b1220 !important; }
+html.dark .bg-slate-100 { background-color: #1e293b !important; }
+html.dark .bg-slate-200 { background-color: #334155 !important; }
+html.dark .text-slate-800 { color: #e5edf8 !important; }
+html.dark .text-slate-700 { color: #d4deeb !important; }
+html.dark .text-slate-600 { color: #bdc9d8 !important; }
+html.dark .text-slate-500 { color: #9aabc0 !important; }
+html.dark .text-slate-400 { color: #8495aa !important; }
+html.dark .border-slate-200 { border-color: #29384d !important; }
+html.dark .border-slate-100 { border-color: #223047 !important; }
+html.dark .border-slate-50 { border-color: #1c2a3e !important; }
+html.dark .hover\:bg-slate-50:hover { background-color: #1a2940 !important; }
+html.dark .hover\:bg-slate-100:hover { background-color: #223047 !important; }
+html.dark input, html.dark textarea, html.dark select { color: #e2e8f0; }
+html.dark input::placeholder, html.dark textarea::placeholder { color: #71839a; }
+html.dark .bg-blue-50 { background-color: #172c4b !important; }
+html.dark .bg-blue-50\/50 { background-color: rgb(23 44 75 / 0.5) !important; }
+html.dark .bg-blue-50\/70 { background-color: rgb(23 44 75 / 0.7) !important; }
+html.dark .bg-red-50 { background-color: #3a1d2a !important; }
+html.dark .border-red-200 { border-color: #713044 !important; }
+html.dark .text-red-700, html.dark .text-red-600 { color: #fda4af !important; }
+html.dark .sidebar { background-color: #0f1929 !important; }
+html.dark .sidebar .hover\:bg-red-50:hover { background-color: #3a1d2a !important; }
+html.dark .shadow-xl, html.dark .shadow-2xl { --tw-shadow-color: rgb(0 0 0 / 0.45); }

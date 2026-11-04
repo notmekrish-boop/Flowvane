@@ -46,6 +46,7 @@ model User {
   name         String
   email        String       @unique
   passwordHash String
+  avatarUrl    String?      @db.Text
 
   ownedProjects Project[]    @relation("ProjectOwner")
   memberships   TeamMember[]
@@ -58,6 +59,8 @@ model User {
   taskActivities TaskActivity[]
   conversations  Conversation[]
   memories       Memory[]
+  notes          Note[]
+  noteFolders    NoteFolder[]
   createdWeeklyReports WeeklyReport[] @relation("WeeklyReportCreator")
 
   createdAt    DateTime     @default(now())
@@ -233,4 +236,32 @@ model WeeklyReport {
 
   @@index([projectId, createdAt])
   @@index([createdById, createdAt])
+}
+
+
+model Note {
+  id        String   @id @default(uuid())
+  title     String   @default("Untitled note")
+  content   String   @default("") @db.Text
+  folder    String   @default("General")
+  isPinned  Boolean  @default(false)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+  @@index([userId, folder])
+}
+
+
+model NoteFolder {
+  id        String   @id @default(uuid())
+  name      String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+  @@index([userId])
 }
