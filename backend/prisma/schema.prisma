@@ -56,6 +56,8 @@ model User {
 
   taskComments   TaskComment[]
   taskActivities TaskActivity[]
+  conversations  Conversation[]
+  memories       Memory[]
 
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -173,4 +175,44 @@ model TaskActivity {
   createdAt DateTime         @default(now())
 
   @@index([taskId, createdAt])
+}
+
+
+model Conversation {
+  id        String        @id @default(uuid())
+  title     String        @default("New chat")
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  @@index([userId, updatedAt])
+}
+
+model ChatMessage {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  text           String       @db.Text
+  proposal        Json?
+  proposalType    String?
+  proposalStatus  String?
+  createdAt       DateTime     @default(now())
+  @@index([conversationId, createdAt])
+}
+
+
+model Memory {
+  id          String   @id @default(uuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    String
+  content     String   @db.Text
+  fingerprint String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, fingerprint])
+  @@index([userId, updatedAt])
 }

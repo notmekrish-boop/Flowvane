@@ -10,6 +10,8 @@ import { authenticateToken } from "./middleware/authMiddleware.js";
 import taskRoutes from "./routes/tasks.js";
 import notificationRoutes from "./routes/notifications.js";
 import aiRoutes from "./routes/ai.js";
+import conversationRoutes from "./routes/conversations.js";
+import memoryRoutes from "./routes/memories.js";
 
 const app = express();
 
@@ -27,6 +29,8 @@ app.use("/api/projects", authenticateToken, projectRoutes);
 app.use("/api/tasks", authenticateToken, taskRoutes);
 app.use("/api/notifications", authenticateToken, notificationRoutes);
 app.use("/api/ai", authenticateToken, aiRoutes);
+app.use("/api/conversations", authenticateToken, conversationRoutes);
+app.use("/api/memories", authenticateToken, memoryRoutes);
 
 // Basic health check
 app.get("/api/health", (req, res) => {
