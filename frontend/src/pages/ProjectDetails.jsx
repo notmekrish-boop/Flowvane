@@ -21,7 +21,8 @@ import {
   Lightbulb,
   Users,
   FileText,
-  CalendarRange
+  CalendarRange,
+  Download
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
@@ -69,6 +70,13 @@ const priorityColors = {
   MEDIUM: "bg-orange-100 text-orange-600",
   LOW: "bg-green-100 text-green-600"
 };
+
+
+function escapeReportHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[character]);
+}
 
 function ProjectDetails() {
   const { id } = useParams();
@@ -169,6 +177,105 @@ function ProjectDetails() {
     } finally {
       setWeeklyReportLoading(false);
     }
+  }
+
+  // EXPORT THE CURRENT WEEKLY REPORT THROUGH THE BROWSER PRINT DIALOG
+  function handleDownloadWeeklyReport() {
+    if (!weeklyReport?.report) return;
+
+    const report = weeklyReport.report;
+    const stats = weeklyReport.stats || {};
+    const projectName = weeklyReport.project?.name || project?.name || "Project";
+    const periodStart = weeklyReport.period?.start
+      ? new Date(weeklyReport.period.start).toLocaleDateString("en-IN")
+      : "—";
+    const periodEnd = weeklyReport.period?.end
+      ? new Date(weeklyReport.period.end).toLocaleDateString("en-IN")
+      : "—";
+
+    const list = (items, emptyMessage) => {
+      const safeItems = Array.isArray(items) ? items : [];
+      return safeItems.length
+        ? `<ul>${safeItems.map((item) => `<li>${escapeReportHtml(item)}</li>`).join("")}</ul>`
+        : `<p class="muted">${escapeReportHtml(emptyMessage)}</p>`;
+    };
+
+    const completedRows = (weeklyReport.completedThisWeek || []).map((task) => `
+      <tr><td>${escapeReportHtml(task.title)}</td>
+      <td>${task.completedAt ? escapeReportHtml(new Date(task.completedAt).toLocaleDateString("en-IN")) : "—"}</td>
+      <td>${escapeReportHtml(task.completedBy || "Team member")}</td></tr>
+    `).join("");
+
+    const deadlineRows = (weeklyReport.upcomingDeadlines || []).map((task) => `
+      <tr><td>${escapeReportHtml(task.title)}</td>
+      <td>${escapeReportHtml(task.assignee || "Unassigned")}</td>
+      <td>${task.dueDate ? escapeReportHtml(new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("en-IN")) : "—"}</td></tr>
+    `).join("");
+
+    const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeReportHtml(projectName)} - Weekly AI Project Report</title>
+<style>
+  *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#172033;margin:36px;line-height:1.5}
+  h1{font-size:25px;margin:0 0 5px} h2{font-size:16px;margin:0 0 12px}
+  .sub{color:#64748b;margin-bottom:24px}.period{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin:18px 0}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+  .stat{background:white;border:1px solid #dbe3ef;border-radius:8px;padding:12px}.stat span{display:block;color:#64748b;font-size:11px}.stat strong{font-size:21px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.section{border:1px solid #dbe3ef;border-radius:10px;padding:16px;margin:14px 0;break-inside:avoid}
+  ul,ol{padding-left:20px;margin:8px 0}li{margin:5px 0}.muted{color:#64748b}
+  table{width:100%;border-collapse:collapse;font-size:12px}th,td{text-align:left;padding:9px;border-bottom:1px solid #e2e8f0}
+  th{color:#475569;background:#f8fafc}.footer{margin-top:24px;color:#94a3b8;font-size:10px}
+  /* Keep report cards and their contents together when the browser paginates. */
+  #completed-section{display:table;width:100%;break-inside:avoid;page-break-inside:avoid}
+  thead{display:table-header-group}
+  tr,td,th{break-inside:avoid;page-break-inside:avoid}
+  @page{size:A4;margin:14mm}
+  @media print{
+    body{margin:0;line-height:1.42}
+    .grid{display:block}
+    .section,.period,.stat{break-inside:avoid-page;page-break-inside:avoid}
+    .section{margin:10px 0;padding:13px}
+    .period{margin:12px 0;padding:14px}
+    .sub{margin-bottom:16px}
+    .footer{margin-top:14px}
+    button{display:none}
+  }
+</style></head><body>
+  <h1>Weekly AI Project Report</h1><div class="sub">${escapeReportHtml(projectName)} · Reporting period: ${periodStart} – ${periodEnd}</div>
+  <div class="period"><h2>Project overview</h2><div>${escapeReportHtml(report.overview || "No overview available.")}</div>
+    <div class="stats">
+      <div class="stat"><span>Completed this week</span><strong>${Number(stats.completedThisWeek) || 0}</strong></div>
+      <div class="stat"><span>Created this week</span><strong>${Number(stats.createdThisWeek) || 0}</strong></div>
+      <div class="stat"><span>Currently overdue</span><strong>${Number(stats.overdueNow) || 0}</strong></div>
+      <div class="stat"><span>Due in next 7 days</span><strong>${Number(stats.upcomingDueNext7Days) || 0}</strong></div>
+    </div>
+    <p class="muted">Current project totals: ${Number(stats.totalTasks) || 0} tasks · ${Number(stats.completedCurrently) || 0} completed · ${Number(stats.openCurrently) || 0} open</p>
+  </div>
+  <div class="grid">
+    <section class="section"><h2>Weekly highlights</h2>${list(report.highlights, "No highlights reported.")}</section>
+    <section class="section"><h2>Concerns and risks</h2>${list(report.concerns, "No concerns reported.")}</section>
+  </div>
+  <section class="section" id="completed-section"><h2>Completed this week</h2>
+    ${completedRows ? `<table><thead><tr><th>Task</th><th>Completed</th><th>Completed by</th></tr></thead><tbody>${completedRows}</tbody></table>` : '<p class="muted">No task completion events were recorded.</p>'}
+  </section>
+  <div class="grid">
+    <section class="section"><h2>Upcoming deadlines</h2>
+      ${deadlineRows ? `<table><thead><tr><th>Task</th><th>Assignee</th><th>Due date</th></tr></thead><tbody>${deadlineRows}</tbody></table>` : '<p class="muted">No open tasks are due in the next 7 days.</p>'}
+    </section>
+    <section class="section"><h2>Next-week priorities</h2>${list(report.nextWeekPriorities, "No priorities suggested.")}</section>
+  </div>
+  <section class="section"><h2>Outlook</h2>${escapeReportHtml(report.outlook || "No outlook available.")}</section>
+  <div class="footer">Generated from recorded TaskPilot AI project data. AI-generated commentary should be reviewed before operational decisions.</div>
+  <script>window.addEventListener("load",()=>{window.focus();window.print();});</script>
+</body></html>`;
+
+    const printWindow = window.open("", "_blank", "width=1000,height=800");
+    if (!printWindow) {
+      setWeeklyReportError("Your browser blocked the PDF window. Allow pop-ups for this site and try again.");
+      return;
+    }
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
   }
 
   // LOAD SAVED WEEKLY REPORT HISTORY
@@ -802,14 +909,26 @@ function ProjectDetails() {
               Review the last 7 days of recorded activity, completed work, risks, and upcoming deadlines.
             </p>
           </div>
-          <button
-            onClick={handleGenerateWeeklyReport}
-            disabled={weeklyReportLoading}
-            className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50"
-          >
-            <FileText size={17} />
-            {weeklyReportLoading ? "Generating..." : weeklyReport ? "Refresh Weekly Report" : "Generate Weekly Report"}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {weeklyReport && (
+              <button
+                type="button"
+                onClick={handleDownloadWeeklyReport}
+                className="inline-flex items-center justify-center gap-2 border border-blue-200 text-blue-700 px-4 py-3 rounded-xl hover:bg-blue-50"
+              >
+                <Download size={17} />
+                Export PDF
+              </button>
+            )}
+            <button
+              onClick={handleGenerateWeeklyReport}
+              disabled={weeklyReportLoading}
+              className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50"
+            >
+              <FileText size={17} />
+              {weeklyReportLoading ? "Generating..." : weeklyReport ? "Refresh Weekly Report" : "Generate Weekly Report"}
+            </button>
+          </div>
         </div>
 
         {weeklyReportError && <p className="mt-4 text-sm text-red-600">{weeklyReportError}</p>}
