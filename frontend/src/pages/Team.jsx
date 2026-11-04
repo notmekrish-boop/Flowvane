@@ -17,9 +17,9 @@ const API_URL = "http://localhost:5000/api";
 function StatCard({ label, value, helper, icon: Icon, tone = "blue" }) {
   const tones = {
     blue: "bg-slate-100 text-slate-600 dark:bg-[#202127] dark:text-[#C6C6D0]",
-    green: "bg-green-50 text-green-600",
-    amber: "bg-amber-50 text-amber-600",
-    red: "bg-red-50 text-red-600",
+    green: "bg-green-50 text-green-600 dark:bg-green-500/10 dark:text-green-400",
+    amber: "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400",
+    red: "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400",
     violet: "bg-[#F1EDFF] text-[#7068FF] dark:bg-[#24212F] dark:text-[#A49CFF]"
   };
 
@@ -288,7 +288,7 @@ export default function Team() {
                   <p className="text-sm text-slate-500 dark:text-[#92939E]">Open tasks assigned to each member</p>
                 </div>
                 {members.length === 0 ? (
-                  <p className="py-8 text-center text-sm text-slate-400">No team members found yet.</p>
+                  <p className="py-8 text-center text-sm text-slate-500 dark:text-[#92939E]">No team members found yet.</p>
                 ) : (
                   <div className="space-y-3">
                     {members
@@ -448,7 +448,7 @@ export default function Team() {
                               {memberTasks.map((task) => (
                                 <div key={task.id} className="flex items-center justify-between gap-3 text-xs">
                                   <span className="min-w-0 truncate text-slate-700 dark:text-[#C6C6D0]">{task.title}</span>
-                                  <span className="shrink-0 text-slate-400">{(task.status || "").replace("_", " ")}</span>
+                                  <span className="shrink-0 text-slate-500 dark:text-[#92939E]">{(task.status || "").replace("_", " ")}</span>
                                 </div>
                               ))}
                             </div>
