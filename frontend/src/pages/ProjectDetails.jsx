@@ -14,7 +14,14 @@ import {
   Circle,
   CalendarDays,
   Pencil,
-  X
+  X,
+  Sparkles,
+  AlertTriangle,
+  CheckCircle,
+  Lightbulb,
+  Users,
+  FileText,
+  CalendarRange
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
@@ -80,6 +87,17 @@ function ProjectDetails() {
   const [commentSaving, setCommentSaving] = useState(false);
   const [commentError, setCommentError] = useState("");
 
+  const [projectInsights, setProjectInsights] = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState("");
+
+  const [weeklyReport, setWeeklyReport] = useState(null);
+  const [weeklyReportLoading, setWeeklyReportLoading] = useState(false);
+  const [weeklyReportError, setWeeklyReportError] = useState("");
+  const [weeklyReportHistory, setWeeklyReportHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -122,6 +140,62 @@ function ProjectDetails() {
     return result;
   }
 
+  // GENERATE AI PROJECT INTELLIGENCE
+  async function handleGenerateInsights() {
+    setInsightsLoading(true);
+    setInsightsError("");
+    try {
+      const result = await apiRequest(`/ai/project-insights/${id}`, {
+        method: "POST"
+      });
+      setProjectInsights(result);
+    } catch (err) {
+      setInsightsError(err.message || "Unable to generate project insights.");
+    } finally {
+      setInsightsLoading(false);
+    }
+  }
+
+  // GENERATE A MANUAL WEEKLY PROJECT REPORT
+  async function handleGenerateWeeklyReport() {
+    setWeeklyReportLoading(true);
+    setWeeklyReportError("");
+    try {
+      const result = await apiRequest(`/ai/weekly-report/${id}`, { method: "POST" });
+      setWeeklyReport(result);
+      await fetchWeeklyReportHistory();
+    } catch (err) {
+      setWeeklyReportError(err.message || "Unable to generate weekly report.");
+    } finally {
+      setWeeklyReportLoading(false);
+    }
+  }
+
+  // LOAD SAVED WEEKLY REPORT HISTORY
+  async function fetchWeeklyReportHistory() {
+    if (!token || !id) return;
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const result = await apiRequest(`/ai/weekly-reports/${id}`);
+      setWeeklyReportHistory(result.reports || []);
+    } catch (err) {
+      setHistoryError(err.message || "Unable to load report history.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function handleDeleteWeeklyReport(reportId) {
+    if (!window.confirm("Delete this saved weekly report?")) return;
+    try {
+      await apiRequest(`/ai/weekly-reports/${reportId}`, { method: "DELETE" });
+      setWeeklyReportHistory((current) => current.filter((item) => item.id !== reportId));
+    } catch (err) {
+      setHistoryError(err.message || "Unable to delete report.");
+    }
+  }
+
   // FETCH PROJECT DETAILS
   useEffect(() => {
     async function fetchProjectDetails() {
@@ -146,6 +220,10 @@ function ProjectDetails() {
     if (token && id) {
       fetchProjectDetails();
     }
+  }, [token, id]);
+
+  useEffect(() => {
+    if (token && id) fetchWeeklyReportHistory();
   }, [token, id]);
 
   // FETCH PROJECT TEAM MEMBERS FOR TASK ASSIGNMENT
@@ -592,6 +670,292 @@ function ProjectDetails() {
           />
         </div>
       </div>
+
+      {/* AI PROJECT INTELLIGENCE */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-6 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="text-violet-600" size={21} />
+              <h2 className="text-xl font-bold text-slate-800">AI Project Intelligence</h2>
+            </div>
+            <p className="text-sm text-slate-500 mt-1">
+              Analyze project health, risks, workload, and recommended next steps.
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateInsights}
+            disabled={insightsLoading}
+            className="inline-flex items-center justify-center gap-2 bg-violet-600 text-white px-5 py-3 rounded-xl hover:bg-violet-700 disabled:opacity-50"
+          >
+            <Sparkles size={17} />
+            {insightsLoading ? "Analyzing..." : projectInsights ? "Refresh Analysis" : "Analyze Project"}
+          </button>
+        </div>
+
+        {insightsError && (
+          <p className="mt-4 text-sm text-red-600">{insightsError}</p>
+        )}
+
+        {insightsLoading && (
+          <p className="mt-5 text-sm text-slate-500">Gemini is reviewing the project's tasks and team workload...</p>
+        )}
+
+        {projectInsights?.insight && (
+          <div className="mt-6 space-y-5">
+            <div className="rounded-xl border border-violet-100 bg-violet-50 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <h3 className="font-semibold text-slate-800">Project health</h3>
+                <span className="text-sm font-semibold rounded-full bg-white px-3 py-1 text-violet-700">
+                  {projectInsights.insight.health}
+                </span>
+              </div>
+              <p className="text-sm leading-6 text-slate-700">{projectInsights.insight.summary}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-5">
+                {[
+                  ["Tasks", projectInsights.counts.total],
+                  ["Completed", projectInsights.counts.completed],
+                  ["In progress", projectInsights.counts.inProgress],
+                  ["To do", projectInsights.counts.todo],
+                  ["Overdue", projectInsights.counts.overdue]
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-white rounded-lg p-3">
+                    <p className="text-xs text-slate-500">{label}</p>
+                    <p className="text-xl font-bold text-slate-800 mt-1">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border border-slate-200 rounded-xl p-4">
+                <h3 className="flex items-center gap-2 font-semibold text-slate-800 mb-3">
+                  <CheckCircle className="text-green-600" size={18} /> Strengths
+                </h3>
+                {projectInsights.insight.strengths.length ? (
+                  <ul className="space-y-2 text-sm text-slate-600 list-disc pl-5">
+                    {projectInsights.insight.strengths.map((item, index) => <li key={index}>{item}</li>)}
+                  </ul>
+                ) : <p className="text-sm text-slate-400">No strengths identified yet.</p>}
+              </div>
+              <div className="border border-slate-200 rounded-xl p-4">
+                <h3 className="flex items-center gap-2 font-semibold text-slate-800 mb-3">
+                  <AlertTriangle className="text-orange-500" size={18} /> Risks and bottlenecks
+                </h3>
+                {projectInsights.insight.risks.length ? (
+                  <ul className="space-y-2 text-sm text-slate-600 list-disc pl-5">
+                    {projectInsights.insight.risks.map((item, index) => <li key={index}>{item}</li>)}
+                  </ul>
+                ) : <p className="text-sm text-slate-400">No major risks identified.</p>}
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-xl p-4">
+              <h3 className="flex items-center gap-2 font-semibold text-slate-800 mb-3">
+                <Lightbulb className="text-amber-500" size={18} /> Recommended next steps
+              </h3>
+              {projectInsights.insight.recommendations.length ? (
+                <ol className="space-y-2 text-sm text-slate-600 list-decimal pl-5">
+                  {projectInsights.insight.recommendations.map((item, index) => <li key={index}>{item}</li>)}
+                </ol>
+              ) : <p className="text-sm text-slate-400">No recommendations available.</p>}
+            </div>
+
+            <div className="border border-slate-200 rounded-xl p-4">
+              <h3 className="flex items-center gap-2 font-semibold text-slate-800 mb-3">
+                <Users className="text-blue-600" size={18} /> Team workload
+              </h3>
+              {projectInsights.insight.workload.length ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="text-xs text-slate-500 border-b">
+                      <tr><th className="py-2 pr-4">Member</th><th className="py-2 px-3">Total</th><th className="py-2 px-3">Completed</th><th className="py-2 px-3">Open</th></tr>
+                    </thead>
+                    <tbody>
+                      {projectInsights.insight.workload.map((row, index) => (
+                        <tr key={`${row.member}-${index}`} className="border-b last:border-0">
+                          <td className="py-3 pr-4 font-medium text-slate-700">{row.member}</td>
+                          <td className="py-3 px-3">{row.total}</td>
+                          <td className="py-3 px-3 text-green-700">{row.completed}</td>
+                          <td className="py-3 px-3">{row.open}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : <p className="text-sm text-slate-400">No workload data available.</p>}
+            </div>
+            <p className="text-xs text-slate-400">AI-generated analysis based on project data at the time of analysis. Refresh after task changes.</p>
+          </div>
+        )}
+      </section>
+
+      {/* WEEKLY AI PROJECT REPORT */}
+      <section className="bg-white border border-slate-200 rounded-2xl p-6 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <CalendarRange className="text-blue-600" size={21} />
+              <h2 className="text-xl font-bold text-slate-800">Weekly AI Project Report</h2>
+            </div>
+            <p className="text-sm text-slate-500 mt-1">
+              Review the last 7 days of recorded activity, completed work, risks, and upcoming deadlines.
+            </p>
+          </div>
+          <button
+            onClick={handleGenerateWeeklyReport}
+            disabled={weeklyReportLoading}
+            className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50"
+          >
+            <FileText size={17} />
+            {weeklyReportLoading ? "Generating..." : weeklyReport ? "Refresh Weekly Report" : "Generate Weekly Report"}
+          </button>
+        </div>
+
+        {weeklyReportError && <p className="mt-4 text-sm text-red-600">{weeklyReportError}</p>}
+        {weeklyReportLoading && <p className="mt-4 text-sm text-slate-500">Gemini is preparing your weekly report from recorded project activity...</p>}
+
+        {weeklyReport && (
+          <div className="mt-6 space-y-5">
+            <div className="rounded-xl bg-blue-50 border border-blue-100 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Reporting period</p>
+              <p className="text-sm text-slate-700 mt-1">
+                {new Date(weeklyReport.period.start).toLocaleDateString("en-IN")} – {new Date(weeklyReport.period.end).toLocaleDateString("en-IN")}
+              </p>
+              <p className="text-sm leading-6 text-slate-700 mt-3">{weeklyReport.report.overview}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+                {[
+                  ["Completed this week", weeklyReport.stats.completedThisWeek],
+                  ["Created this week", weeklyReport.stats.createdThisWeek],
+                  ["Currently overdue", weeklyReport.stats.overdueNow],
+                  ["Due in next 7 days", weeklyReport.stats.upcomingDueNext7Days]
+                ].map(([label, value]) => (
+                  <div key={label} className="bg-white rounded-lg p-3">
+                    <p className="text-xs text-slate-500">{label}</p>
+                    <p className="text-xl font-bold text-slate-800 mt-1">{value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border border-slate-200 rounded-xl p-4">
+                <h3 className="font-semibold text-slate-800 mb-3">Weekly highlights</h3>
+                {weeklyReport.report.highlights.length ? (
+                  <ul className="space-y-2 text-sm text-slate-600 list-disc pl-5">
+                    {weeklyReport.report.highlights.map((item, index) => <li key={index}>{item}</li>)}
+                  </ul>
+                ) : <p className="text-sm text-slate-400">No highlights reported.</p>}
+              </div>
+              <div className="border border-slate-200 rounded-xl p-4">
+                <h3 className="font-semibold text-slate-800 mb-3">Concerns and risks</h3>
+                {weeklyReport.report.concerns.length ? (
+                  <ul className="space-y-2 text-sm text-slate-600 list-disc pl-5">
+                    {weeklyReport.report.concerns.map((item, index) => <li key={index}>{item}</li>)}
+                  </ul>
+                ) : <p className="text-sm text-slate-400">No concerns reported.</p>}
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-xl p-4">
+              <h3 className="font-semibold text-slate-800 mb-3">Completed this week</h3>
+              {weeklyReport.completedThisWeek.length ? (
+                <ul className="space-y-2 text-sm text-slate-600">
+                  {weeklyReport.completedThisWeek.map((task) => (
+                    <li key={task.id} className="flex flex-wrap justify-between gap-2 border-b last:border-0 pb-2 last:pb-0">
+                      <span className="font-medium">{task.title}</span>
+                      <span className="text-xs text-slate-400">{new Date(task.completedAt).toLocaleDateString("en-IN")} · {task.completedBy}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="text-sm text-slate-400">No task completion events were recorded in this period.</p>}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="border border-slate-200 rounded-xl p-4">
+                <h3 className="font-semibold text-slate-800 mb-3">Upcoming deadlines</h3>
+                {weeklyReport.upcomingDeadlines.length ? (
+                  <ul className="space-y-2 text-sm text-slate-600">
+                    {weeklyReport.upcomingDeadlines.map((task, index) => (
+                      <li key={`${task.title}-${index}`} className="flex justify-between gap-2">
+                        <span>{task.title}</span><span className="text-xs text-slate-400">{task.dueDate ? new Date(`${task.dueDate}T00:00:00`).toLocaleDateString("en-IN") : "—"}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="text-sm text-slate-400">No open tasks are due in the next 7 days.</p>}
+              </div>
+              <div className="border border-slate-200 rounded-xl p-4">
+                <h3 className="font-semibold text-slate-800 mb-3">Next-week priorities</h3>
+                {weeklyReport.report.nextWeekPriorities.length ? (
+                  <ol className="space-y-2 text-sm text-slate-600 list-decimal pl-5">
+                    {weeklyReport.report.nextWeekPriorities.map((item, index) => <li key={index}>{item}</li>)}
+                  </ol>
+                ) : <p className="text-sm text-slate-400">No priorities suggested.</p>}
+              </div>
+            </div>
+            <p className="text-sm text-slate-600"><span className="font-semibold">Outlook:</span> {weeklyReport.report.outlook}</p>
+            <p className="text-xs text-slate-400">Generated on demand. Completed-this-week figures are based on recorded task status-change events. This report is saved to project history.</p>
+          </div>
+        )}
+
+        <div className="mt-7 border-t border-slate-200 pt-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800">Report History</h3>
+              <p className="text-sm text-slate-500">Previously generated weekly reports for this project.</p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchWeeklyReportHistory}
+              disabled={historyLoading}
+              className="border border-slate-200 px-4 py-2 rounded-lg text-sm hover:bg-slate-50 disabled:opacity-50"
+            >
+              {historyLoading ? "Loading..." : "Refresh History"}
+            </button>
+          </div>
+
+          {historyError && <p className="text-sm text-red-600 mb-3">{historyError}</p>}
+          {historyLoading && weeklyReportHistory.length === 0 ? (
+            <p className="text-sm text-slate-500">Loading saved reports...</p>
+          ) : weeklyReportHistory.length === 0 ? (
+            <p className="text-sm text-slate-400 rounded-xl border border-dashed border-slate-200 p-5 text-center">No saved weekly reports yet. Generate your first report to start building history.</p>
+          ) : (
+            <div className="space-y-3">
+              {weeklyReportHistory.map((saved) => (
+                <div key={saved.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border border-slate-200 rounded-xl p-4">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-slate-800">
+                      {new Date(saved.periodStart).toLocaleDateString("en-IN")} – {new Date(saved.periodEnd).toLocaleDateString("en-IN")}
+                    </p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      Saved {new Date(saved.createdAt).toLocaleString("en-IN")} · By {saved.createdBy?.name || "Project member"}
+                    </p>
+                    <p className="text-sm text-slate-600 mt-2 line-clamp-2">{saved.data?.report?.overview || "No overview available."}</p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setWeeklyReport(saved.data)}
+                      className="text-sm bg-blue-50 text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-100"
+                    >
+                      View
+                    </button>
+                    {(saved.createdById === user?.id || project?.ownerId === user?.id) && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteWeeklyReport(saved.id)}
+                        className="text-sm border border-red-200 text-red-600 px-3 py-2 rounded-lg hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* PROJECT TEAM */}
       <ProjectTeam

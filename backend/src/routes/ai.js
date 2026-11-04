@@ -134,6 +134,355 @@ function parseModelJson(raw) {
   return JSON.parse(cleaned);
 }
 
+
+// AI PROJECT INTELLIGENCE: analyze one project using only its stored data.
+router.post("/project-insights/:projectId", async (req, res) => {
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ success: false, message: "Gemini API key is not configured." });
+    }
+
+    const project = await prisma.project.findFirst({
+      where: {
+        id: req.params.projectId,
+        OR: [
+          { ownerId: req.userId },
+          { members: { some: { userId: req.userId } } }
+        ]
+      },
+      include: {
+        owner: { select: { name: true } },
+        members: {
+          include: { user: { select: { name: true } } },
+          orderBy: { joinedAt: "asc" }
+        },
+        tasks: {
+          include: { assignee: { select: { name: true } } },
+          orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+          take: 300
+        }
+      }
+    });
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const tasks = project.tasks.map((task) => {
+      const dueDate = task.dueDate ? task.dueDate.toISOString().slice(0, 10) : null;
+      return {
+        title: task.title,
+        description: task.description || "",
+        status: task.status,
+        priority: task.priority,
+        dueDate,
+        overdue: Boolean(dueDate && dueDate < today && task.status !== "COMPLETED"),
+        assignee: task.assignee?.name || "Unassigned"
+      };
+    });
+
+    const counts = {
+      total: tasks.length,
+      completed: tasks.filter((t) => t.status === "COMPLETED").length,
+      inProgress: tasks.filter((t) => t.status === "IN_PROGRESS").length,
+      todo: tasks.filter((t) => t.status === "TODO").length,
+      overdue: tasks.filter((t) => t.overdue).length,
+      highPriorityOpen: tasks.filter((t) => t.priority === "HIGH" && t.status !== "COMPLETED").length
+    };
+    counts.progress = counts.total ? Math.round((counts.completed / counts.total) * 100) : 0;
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const prompt = `Analyze this project-management snapshot as of ${today}.
+Use only the supplied data. Do not invent causes, dates, people, or task details.
+Return ONLY JSON with this exact shape:
+{
+ "health":"On Track|Needs Attention|At Risk|Not Enough Data",
+ "summary":"2-4 concise sentences",
+ "strengths":["..."],
+ "risks":["..."],
+ "recommendations":["..."],
+ "workload":[{"member":"name","total":0,"completed":0,"open":0}]
+}
+Keep each list to at most 4 items. Recommendations must be actionable and grounded in the snapshot.
+If there are no tasks, say there is not enough data and recommend adding tasks.
+Workload should include assigned team members and an "Unassigned" row only if there are unassigned tasks.
+Do not treat missing due dates as overdue.
+
+PROJECT:
+${JSON.stringify({
+  name: project.name,
+  description: project.description || "",
+  owner: project.owner?.name || "Unknown",
+  members: project.members.map((m) => ({ name: m.user?.name || "Team member", role: m.role })),
+  counts,
+  tasks
+})}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash-lite",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json" }
+    });
+    const insight = parseModelJson(response.text || "");
+    const allowedHealth = ["On Track", "Needs Attention", "At Risk", "Not Enough Data"];
+    const cleanList = (value) => Array.isArray(value)
+      ? value.filter((item) => typeof item === "string").slice(0, 4)
+      : [];
+
+    res.status(200).json({
+      success: true,
+      project: { id: project.id, name: project.name },
+      counts,
+      insight: {
+        health: allowedHealth.includes(insight.health) ? insight.health : "Not Enough Data",
+        summary: typeof insight.summary === "string" ? insight.summary : "Unable to summarize this project.",
+        strengths: cleanList(insight.strengths),
+        risks: cleanList(insight.risks),
+        recommendations: cleanList(insight.recommendations),
+        workload: Array.isArray(insight.workload)
+          ? insight.workload.slice(0, 30).filter((row) => row && typeof row.member === "string")
+              .map((row) => ({
+                member: row.member,
+                total: Number.isFinite(Number(row.total)) ? Number(row.total) : 0,
+                completed: Number.isFinite(Number(row.completed)) ? Number(row.completed) : 0,
+                open: Number.isFinite(Number(row.open)) ? Number(row.open) : 0
+              }))
+          : []
+      }
+    });
+  } catch (error) {
+    console.error("Project intelligence error:", error);
+    res.status(500).json({ success: false, message: "Unable to generate project insights. Please try again." });
+  }
+});
+
+
+
+
+// LIST SAVED WEEKLY REPORTS FOR A PROJECT
+router.get("/weekly-reports/:projectId", async (req, res) => {
+  try {
+    const project = await prisma.project.findFirst({
+      where: {
+        id: req.params.projectId,
+        OR: [
+          { ownerId: req.userId },
+          { members: { some: { userId: req.userId } } }
+        ]
+      },
+      select: { id: true }
+    });
+    if (!project) return res.status(404).json({ success: false, message: "Project not found." });
+
+    const reports = await prisma.weeklyReport.findMany({
+      where: { projectId: project.id },
+      select: {
+        id: true, createdById: true, periodStart: true, periodEnd: true, createdAt: true,
+        createdBy: { select: { name: true } },
+        data: true
+      },
+      orderBy: [{ periodEnd: "desc" }, { createdAt: "desc" }],
+      take: 50
+    });
+    return res.json({ success: true, reports });
+  } catch (error) {
+    console.error("Weekly report history error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load report history." });
+  }
+});
+
+// DELETE A SAVED WEEKLY REPORT (creator or project owner)
+router.delete("/weekly-reports/:reportId", async (req, res) => {
+  try {
+    const report = await prisma.weeklyReport.findFirst({
+      where: { id: req.params.reportId },
+      include: { project: { select: { ownerId: true } } }
+    });
+    if (!report) return res.status(404).json({ success: false, message: "Report not found." });
+    if (report.createdById !== req.userId && report.project.ownerId !== req.userId) {
+      return res.status(403).json({ success: false, message: "Only the report creator or project owner can delete this report." });
+    }
+    await prisma.weeklyReport.delete({ where: { id: report.id } });
+    return res.json({ success: true, message: "Weekly report deleted." });
+  } catch (error) {
+    console.error("Weekly report deletion error:", error);
+    return res.status(500).json({ success: false, message: "Unable to delete weekly report." });
+  }
+});
+
+// WEEKLY PROJECT REPORT: summarize the previous seven days using recorded task activity.
+router.post("/weekly-report/:projectId", async (req, res) => {
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ success: false, message: "Gemini API key is not configured." });
+    }
+
+    const project = await prisma.project.findFirst({
+      where: {
+        id: req.params.projectId,
+        OR: [
+          { ownerId: req.userId },
+          { members: { some: { userId: req.userId } } }
+        ]
+      },
+      select: { id: true, name: true, description: true }
+    });
+
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found." });
+    }
+
+    const now = new Date();
+    const periodStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const [tasks, activities] = await Promise.all([
+      prisma.task.findMany({
+        where: { projectId: project.id },
+        include: { assignee: { select: { name: true } } },
+        orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }]
+      }),
+      prisma.taskActivity.findMany({
+        where: {
+          createdAt: { gte: periodStart, lte: now },
+          task: { projectId: project.id }
+        },
+        include: {
+          task: { select: { id: true, title: true } },
+          user: { select: { name: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500
+      })
+    ]);
+
+    const completedEvents = activities.filter((activity) =>
+      activity.type === "TASK_STATUS_CHANGED" && /→\s*COMPLETED\.?$/i.test(activity.details || "")
+    );
+    const createdEvents = activities.filter((activity) => activity.type === "TASK_CREATED");
+    const completedThisWeek = [...new Map(completedEvents.map((activity) => [activity.taskId, {
+      id: activity.taskId,
+      title: activity.task?.title || "Task",
+      completedAt: activity.createdAt,
+      completedBy: activity.user?.name || "Team member"
+    }])).values()];
+    const createdThisWeek = [...new Map(createdEvents.map((activity) => [activity.taskId, {
+      id: activity.taskId,
+      title: activity.task?.title || "Task",
+      createdAt: activity.createdAt
+    }])).values()];
+
+    const todayDate = now.toISOString().slice(0, 10);
+    const upcomingCutoffDate = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const openTasks = tasks.filter((task) => task.status !== "COMPLETED");
+    const upcomingDeadlines = openTasks.filter((task) => {
+      if (!task.dueDate) return false;
+      const dueDate = task.dueDate.toISOString().slice(0, 10);
+      return dueDate >= todayDate && dueDate <= upcomingCutoffDate;
+    });
+    const overdueTasks = openTasks.filter((task) =>
+      task.dueDate && task.dueDate.toISOString().slice(0, 10) < todayDate
+    );
+    const stats = {
+      totalTasks: tasks.length,
+      completedCurrently: tasks.filter((task) => task.status === "COMPLETED").length,
+      openCurrently: openTasks.length,
+      completedThisWeek: completedThisWeek.length,
+      createdThisWeek: createdThisWeek.length,
+      activityCount: activities.length,
+      overdueNow: overdueTasks.length,
+      upcomingDueNext7Days: upcomingDeadlines.length
+    };
+
+    const taskDetails = (task) => ({
+      title: task.title,
+      status: task.status,
+      priority: task.priority,
+      dueDate: task.dueDate ? task.dueDate.toISOString().slice(0, 10) : null,
+      assignee: task.assignee?.name || "Unassigned"
+    });
+    const activityDetails = activities.map((activity) => ({
+      type: activity.type,
+      details: activity.details || "",
+      task: activity.task?.title || "Unknown task",
+      actor: activity.user?.name || "Team member",
+      occurredAt: activity.createdAt.toISOString()
+    }));
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const prompt = `Create a concise weekly project report for the seven-day period ${periodStart.toISOString()} through ${now.toISOString()}.
+Use only the supplied project data. Do not invent task names, events, people, dates, metrics, or causes.
+The numeric statistics are calculated by the server and must not be restated with different values.
+A task counts as completed this week only when a recorded TASK_STATUS_CHANGED activity shows its status changed to COMPLETED during this period. Do not infer weekly completions from a task's current status.
+Return ONLY JSON in this shape:
+{
+ "overview":"2-3 sentences describing the week using only supplied activity and current state",
+ "highlights":["..."],
+ "concerns":["..."],
+ "nextWeekPriorities":["..."],
+ "outlook":"1-2 sentences"
+}
+Keep each list to at most 5 concise, actionable items. If there was little or no activity, state that clearly. Distinguish current overdue tasks from tasks that became overdue during the reporting period. Do not claim a task was completed this week unless it appears in completedThisWeek.
+
+PROJECT: ${project.name}
+DESCRIPTION: ${project.description || "None"}
+SERVER-CALCULATED STATISTICS: ${JSON.stringify(stats)}
+TASKS CURRENTLY IN THE PROJECT: ${JSON.stringify(tasks.map(taskDetails))}
+TASKS COMPLETED THIS WEEK (RECORDED STATUS EVENTS): ${JSON.stringify(completedThisWeek.map((item) => ({ ...item, completedAt: item.completedAt.toISOString() })))}
+TASKS CREATED THIS WEEK: ${JSON.stringify(createdThisWeek.map((item) => ({ ...item, createdAt: item.createdAt.toISOString() })))}
+UPCOMING DEADLINES (NEXT 7 DAYS): ${JSON.stringify(upcomingDeadlines.map(taskDetails))}
+CURRENT OVERDUE TASKS: ${JSON.stringify(overdueTasks.map(taskDetails))}
+RECORDED ACTIVITY THIS WEEK: ${JSON.stringify(activityDetails)}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.5-flash-lite",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { responseMimeType: "application/json" }
+    });
+    const report = parseModelJson(response.text || "");
+    const cleanList = (value) => Array.isArray(value)
+      ? value.filter((item) => typeof item === "string" && item.trim()).slice(0, 5)
+      : [];
+
+    const reportData = {
+      success: true,
+      project: { id: project.id, name: project.name },
+      period: { start: periodStart.toISOString(), end: now.toISOString() },
+      stats,
+      completedThisWeek: completedThisWeek.map((item) => ({
+        ...item, completedAt: item.completedAt.toISOString()
+      })),
+      createdThisWeek: createdThisWeek.map((item) => ({
+        ...item, createdAt: item.createdAt.toISOString()
+      })),
+      upcomingDeadlines: upcomingDeadlines.map(taskDetails),
+      overdueTasks: overdueTasks.map(taskDetails),
+      report: {
+        overview: typeof report.overview === "string" ? report.overview : "Weekly overview unavailable.",
+        highlights: cleanList(report.highlights),
+        concerns: cleanList(report.concerns),
+        nextWeekPriorities: cleanList(report.nextWeekPriorities),
+        outlook: typeof report.outlook === "string" ? report.outlook : "No outlook available."
+      }
+    };
+
+    const savedReport = await prisma.weeklyReport.create({
+      data: {
+        projectId: project.id,
+        createdById: req.userId,
+        periodStart,
+        periodEnd: now,
+        data: reportData
+      },
+      select: { id: true, createdAt: true }
+    });
+
+    res.status(200).json({ ...reportData, savedReportId: savedReport.id, savedAt: savedReport.createdAt });
+  } catch (error) {
+    console.error("Weekly project report error:", error);
+    res.status(500).json({ success: false, message: "Unable to generate the weekly report. Please try again." });
+  }
+});
+
 router.post("/chat", async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {

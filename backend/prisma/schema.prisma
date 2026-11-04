@@ -58,6 +58,7 @@ model User {
   taskActivities TaskActivity[]
   conversations  Conversation[]
   memories       Memory[]
+  createdWeeklyReports WeeklyReport[] @relation("WeeklyReportCreator")
 
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -74,6 +75,7 @@ model Project {
   members       TeamMember[]
   tasks         Task[]
   notifications Notification[]
+  weeklyReports  WeeklyReport[]
 
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -215,4 +217,20 @@ model Memory {
 
   @@unique([userId, fingerprint])
   @@index([userId, updatedAt])
+}
+
+
+model WeeklyReport {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User     @relation("WeeklyReportCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  periodStart DateTime
+  periodEnd   DateTime
+  data        Json
+  createdAt   DateTime @default(now())
+
+  @@index([projectId, createdAt])
+  @@index([createdById, createdAt])
 }
