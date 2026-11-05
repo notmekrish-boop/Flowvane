@@ -26,11 +26,27 @@ enum TeamRole {
   MEMBER
 }
 
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum DiagramType {
+  FLOWCHART
+  MIND_MAP
+  ARCHITECTURE
+  SWIMLANE
+  DECISION_TREE
+  PROCESS
+}
+
 enum NotificationType {
   TASK_ASSIGNED
   TASK_UPDATED
   TASK_STATUS_CHANGED
   TASK_DELETED
+  TASK_REMINDER
 }
 
 enum TaskActivityType {
@@ -47,13 +63,17 @@ model User {
   email        String       @unique
   passwordHash String
   avatarUrl    String?      @db.Text
+  lastSeenAt   DateTime?
 
   ownedProjects Project[]    @relation("ProjectOwner")
+  ownedWorkspaces Workspace[] @relation("WorkspaceOwner")
+  workspaceMemberships WorkspaceMember[]
   memberships   TeamMember[]
   assignedTasks Task[]       @relation("TaskAssignee")
 
   receivedNotifications Notification[] @relation("NotificationRecipient")
   sentNotifications      Notification[] @relation("NotificationActor")
+  uploadedTaskAttachments TaskAttachment[] @relation("TaskAttachmentUploader")
 
   taskComments   TaskComment[]
   taskActivities TaskActivity[]
@@ -61,10 +81,25 @@ model User {
   memories       Memory[]
   notes          Note[]
   noteFolders    NoteFolder[]
+  diagrams       Diagram[]
   createdWeeklyReports WeeklyReport[] @relation("WeeklyReportCreator")
+  authoredProjectMessages ProjectMessage[] @relation("ProjectMessageAuthor")
+  authoredWorkspaceMessages WorkspaceMessage[] @relation("WorkspaceMessageAuthor")
+  directConversationsAsFirst DirectConversation[] @relation("DirectConversationFirst")
+  directConversationsAsSecond DirectConversation[] @relation("DirectConversationSecond")
+  sentDirectMessages DirectMessage[] @relation("DirectMessageSender")
 
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+}
+
+model RateLimitBucket {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
 }
 
 model Project {
@@ -75,13 +110,123 @@ model Project {
   ownerId     String
   owner       User         @relation("ProjectOwner", fields: [ownerId], references: [id], onDelete: Cascade)
 
+  workspaceId String
+  workspace   Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
   members       TeamMember[]
   tasks         Task[]
   notifications Notification[]
   weeklyReports  WeeklyReport[]
+  notes          Note[]
+  diagrams       Diagram[]
+  chatMessages   ProjectMessage[]
 
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
+}
+
+model Workspace {
+  id        String   @id @default(uuid())
+  name      String
+  ownerId   String
+  owner     User     @relation("WorkspaceOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  planCode  String   @default("FREE")
+  plan      PlanQuota @relation(fields: [planCode], references: [code], onDelete: Restrict)
+  members   WorkspaceMember[]
+  projects  Project[]
+  messages  WorkspaceMessage[]
+  directConversations DirectConversation[]
+  aiConversations Conversation[]
+  memories Memory[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId])
+}
+
+model PlanQuota {
+  code                 String      @id
+  name                 String
+  aiRequestsPerWindow  Int
+  aiWindowSeconds     Int         @default(600)
+  workspaces           Workspace[]
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+}
+
+model WorkspaceMessage {
+  id          String    @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User      @relation("WorkspaceMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  content     String    @db.Text
+  editedAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([workspaceId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model DirectConversation {
+  id          String   @id @default(uuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  firstUserId String
+  firstUser   User     @relation("DirectConversationFirst", fields: [firstUserId], references: [id], onDelete: Cascade)
+  secondUserId String
+  secondUser  User     @relation("DirectConversationSecond", fields: [secondUserId], references: [id], onDelete: Cascade)
+  messages    DirectMessage[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([workspaceId, firstUserId, secondUserId])
+  @@index([firstUserId, updatedAt])
+  @@index([secondUserId, updatedAt])
+}
+
+model DirectMessage {
+  id             String           @id @default(uuid())
+  conversationId String
+  conversation   DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User              @relation("DirectMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  content        String            @db.Text
+  editedAt       DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([senderId, createdAt])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(MEMBER)
+  joinedAt    DateTime      @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId, joinedAt])
+}
+
+model ProjectMessage {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation("ProjectMessageAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  editedAt  DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model TeamMember {
@@ -107,12 +252,26 @@ model Task {
   status      TaskStatus   @default(TODO)
   priority    TaskPriority @default(MEDIUM)
   dueDate     DateTime?
+  estimatedMinutes Int?
+  actualMinutes    Int          @default(0)
 
   projectId   String
   project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   assigneeId  String?
   assignee    User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+
+  parentTaskId String?
+  parentTask   Task?   @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks     Task[]  @relation("TaskSubtasks")
+  notes        Note[]
+  attachments  TaskAttachment[]
+  dependencies TaskDependency[] @relation("TaskDependencies")
+  dependents   TaskDependency[] @relation("TaskDependents")
+  labels       String[] @default([])
+  customFields Json     @default("{}")
+  reminderAt DateTime?
+  reminderSentAt DateTime?
 
   notifications Notification[]
   comments      TaskComment[]
@@ -123,6 +282,36 @@ model Task {
 
   @@index([projectId])
   @@index([assigneeId])
+  @@index([parentTaskId])
+  @@index([reminderAt, reminderSentAt])
+}
+
+model TaskAttachment {
+  id         String   @id @default(uuid())
+  taskId     String
+  task       Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploaderId String
+  uploader   User     @relation("TaskAttachmentUploader", fields: [uploaderId], references: [id], onDelete: Cascade)
+  fileName   String
+  mimeType   String
+  size       Int
+  data       Bytes
+  createdAt  DateTime @default(now())
+
+  @@index([taskId, createdAt])
+  @@index([uploaderId])
+}
+
+model TaskDependency {
+  id              String   @id @default(uuid())
+  taskId          String
+  task            Task     @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTaskId String
+  dependsOnTask   Task     @relation("TaskDependents", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([dependsOnTaskId])
 }
 
 model Notification {
@@ -188,10 +377,13 @@ model Conversation {
   title     String        @default("New chat")
   userId    String
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   messages  ChatMessage[]
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
   @@index([userId, updatedAt])
+  @@index([workspaceId, userId, updatedAt])
 }
 
 model ChatMessage {
@@ -212,14 +404,16 @@ model Memory {
   id          String   @id @default(uuid())
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   category    String
   content     String   @db.Text
   fingerprint String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([userId, fingerprint])
-  @@index([userId, updatedAt])
+  @@unique([userId, workspaceId, fingerprint])
+  @@index([workspaceId, userId, updatedAt])
 }
 
 
@@ -247,13 +441,43 @@ model Note {
   isPinned  Boolean  @default(false)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String?
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  taskId    String?
+  task      Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  diagrams  Diagram[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([userId, updatedAt])
   @@index([userId, folder])
+  @@index([projectId, updatedAt])
+  @@index([taskId, updatedAt])
 }
 
+model Diagram {
+  id         String      @id @default(uuid())
+  title      String      @default("Untitled diagram")
+  source     String      @default("flowchart TD") @db.Text
+  type       DiagramType @default(FLOWCHART)
+  visualData Json?
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  noteId String?
+  note   Note?   @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([ownerId, updatedAt])
+  @@index([projectId, updatedAt])
+  @@index([noteId, updatedAt])
+}
 
 model NoteFolder {
   id        String   @id @default(uuid())

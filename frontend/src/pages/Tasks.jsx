@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  Bell,
   CalendarDays,
   Check,
   CheckCheck,
@@ -14,13 +15,14 @@ import {
   SlidersHorizontal,
   Sparkles,
   Target,
+  Tags,
   Trash2,
   X,
-} from "lucide-react";
+} from "../components/icons";
 import KanbanBoard from "../components/KanbanBoard";
 import { useAuth } from "../context/AuthContext";
+import { API_URL } from "../lib/api.js";
 
-const API_URL = "http://localhost:5000/api";
 
 const STATUS_TO_UI = {
   TODO: "To Do",
@@ -77,6 +79,12 @@ function isOverdue(value, status) {
   if (Number.isNaN(due.getTime())) return false;
   due.setHours(23, 59, 59, 999);
   return due.getTime() < Date.now();
+}
+
+function toLocalDateTimeInput(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 }
 
 function StatCard({ label, value, detail, icon: Icon, tone = "neutral" }) {
@@ -163,7 +171,12 @@ function Tasks() {
   const [projectId, setProjectId] = useState("");
   const [priority, setPriority] = useState("Medium");
   const [dueDate, setDueDate] = useState("");
+  const [reminderAt, setReminderAt] = useState("");
   const [assigneeId, setAssigneeId] = useState("");
+  const [labelsText, setLabelsText] = useState("");
+  const [estimatedMinutes, setEstimatedMinutes] = useState("");
+  const [actualMinutes, setActualMinutes] = useState("0");
+  const [customFieldRows, setCustomFieldRows] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -210,8 +223,15 @@ function Tasks() {
       priority: PRIORITY_TO_UI[task.priority] || "Medium",
       status: STATUS_TO_UI[task.status] || "To Do",
       dueDate: task.dueDate || null,
+      reminderAt: task.reminderAt || null,
       assignee: task.assignee || null,
       assigneeId: task.assigneeId || "",
+      labels: task.labels || [],
+      estimatedMinutes: task.estimatedMinutes ?? null,
+      actualMinutes: task.actualMinutes ?? 0,
+      customFields: task.customFields || {},
+      parentTaskId: task.parentTaskId || null,
+      parentTask: task.parentTask || null,
       canManage,
       canChangeStatus: canManage || task.assigneeId === user?.id,
     };
@@ -286,7 +306,12 @@ function Tasks() {
     setDescription("");
     setPriority("Medium");
     setDueDate("");
+    setReminderAt("");
     setAssigneeId("");
+    setLabelsText("");
+    setEstimatedMinutes("");
+    setActualMinutes("0");
+    setCustomFieldRows([]);
     setEditingTask(null);
     setShowForm(false);
   }
@@ -297,7 +322,12 @@ function Tasks() {
     setDescription("");
     setPriority("Medium");
     setDueDate("");
+    setReminderAt("");
     setAssigneeId("");
+    setLabelsText("");
+    setEstimatedMinutes("");
+    setActualMinutes("0");
+    setCustomFieldRows([]);
     setProjectId(projects[0]?.id || "");
     setError("");
     setShowForm(true);
@@ -310,9 +340,14 @@ function Tasks() {
     setDescription(task.description);
     setPriority(task.priority);
     setAssigneeId(task.assigneeId || "");
+    setLabelsText((task.labels || []).join(", "));
+    setEstimatedMinutes(task.estimatedMinutes == null ? "" : String(task.estimatedMinutes));
+    setActualMinutes(String(task.actualMinutes || 0));
+    setCustomFieldRows(Object.entries(task.customFields || {}).map(([key, value]) => ({ key, value })));
     setDueDate(
       task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 10) : ""
     );
+    setReminderAt(toLocalDateTimeInput(task.reminderAt));
     setProjectId(task.projectId || "");
     setShowForm(true);
     setError("");
@@ -324,6 +359,12 @@ function Tasks() {
 
     setSaving(true);
     setError("");
+    const labels = [...new Map(labelsText.split(",").map((label) => label.trim()).filter(Boolean).map((label) => [label.toLocaleLowerCase(), label])).values()];
+    const timeFields = {
+      estimatedMinutes: estimatedMinutes === "" ? null : Number(estimatedMinutes),
+      actualMinutes: actualMinutes === "" ? 0 : Number(actualMinutes),
+    };
+    const customFields = Object.fromEntries(customFieldRows.filter((row) => row.key.trim() && row.value.trim()).map((row) => [row.key.trim(), row.value.trim()]));
 
     try {
       if (editingTask) {
@@ -334,7 +375,11 @@ function Tasks() {
             description: description.trim() || null,
             priority: priority.toUpperCase(),
             dueDate: dueDate || null,
+            reminderAt: reminderAt ? new Date(reminderAt).toISOString() : null,
             assigneeId: assigneeId || null,
+            labels,
+            ...timeFields,
+            customFields,
           }),
         });
       } else {
@@ -345,7 +390,11 @@ function Tasks() {
             description: description.trim() || null,
             priority: priority.toUpperCase(),
             dueDate: dueDate || null,
+            reminderAt: reminderAt ? new Date(reminderAt).toISOString() : null,
             assigneeId: assigneeId || null,
+            labels,
+            ...timeFields,
+            customFields,
           }),
         });
       }
@@ -643,6 +692,62 @@ function Tasks() {
                 />
               </label>
 
+              <label className="md:col-span-2">
+                <span className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--fv-text-secondary)]">
+                  <Tags size={14} aria-hidden="true" /> Labels
+                </span>
+                <input
+                  value={labelsText}
+                  onChange={(event) => setLabelsText(event.target.value)}
+                  maxLength={700}
+                  placeholder="e.g. frontend, urgent, launch"
+                  className={inputClass}
+                />
+                <span className="mt-1 block text-xs text-[var(--fv-text-muted)]">Separate labels with commas. Up to 20 labels, 32 characters each.</span>
+              </label>
+
+              <div className="md:col-span-2">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-xs font-medium text-[var(--fv-text-secondary)]">Custom fields</span>
+                  <button
+                    type="button"
+                    onClick={() => setCustomFieldRows((rows) => rows.length < 20 ? [...rows, { key: "", value: "" }] : rows)}
+                    disabled={customFieldRows.length >= 20}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-[var(--fv-accent)] hover:bg-[var(--fv-accent-soft)] disabled:opacity-40"
+                  >
+                    <Plus size={13} aria-hidden="true" /> Add field
+                  </button>
+                </div>
+                {customFieldRows.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-[var(--fv-border)] px-3 py-3 text-xs text-[var(--fv-text-muted)]">Add task-specific details such as Environment, Ticket ID, or Release.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {customFieldRows.map((row, index) => (
+                      <div key={index} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] gap-2">
+                        <input
+                          value={row.key}
+                          onChange={(event) => setCustomFieldRows((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, key: event.target.value } : item))}
+                          maxLength={40}
+                          placeholder="Field name"
+                          aria-label={`Custom field ${index + 1} name`}
+                          className={inputClass}
+                        />
+                        <input
+                          value={row.value}
+                          onChange={(event) => setCustomFieldRows((rows) => rows.map((item, itemIndex) => itemIndex === index ? { ...item, value: event.target.value } : item))}
+                          maxLength={500}
+                          placeholder="Value"
+                          aria-label={`Custom field ${index + 1} value`}
+                          className={inputClass}
+                        />
+                        <button type="button" onClick={() => setCustomFieldRows((rows) => rows.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Remove custom field ${index + 1}`} className="rounded-lg px-2 text-[var(--fv-text-muted)] hover:bg-rose-500/10 hover:text-rose-500"><X size={16} aria-hidden="true" /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <span className="mt-1 block text-xs text-[var(--fv-text-muted)]">Up to 20 fields. Names up to 40 characters; values up to 500.</span>
+              </div>
+
               <label>
                 <span className="mb-2 block text-xs font-medium text-[var(--fv-text-secondary)]">
                   Project
@@ -715,6 +820,39 @@ function Tasks() {
               </label>
 
               <label>
+                <span className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--fv-text-secondary)]">
+                  <Clock3 size={14} aria-hidden="true" /> Estimated minutes
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="1"
+                  inputMode="numeric"
+                  value={estimatedMinutes}
+                  onChange={(event) => setEstimatedMinutes(event.target.value)}
+                  placeholder="Not set"
+                  className={inputClass}
+                />
+              </label>
+
+              <label>
+                <span className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--fv-text-secondary)]">
+                  <Clock3 size={14} aria-hidden="true" /> Time logged (minutes)
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  step="1"
+                  inputMode="numeric"
+                  value={actualMinutes}
+                  onChange={(event) => setActualMinutes(event.target.value)}
+                  className={inputClass}
+                />
+              </label>
+
+              <label>
                 <span className="mb-2 block text-xs font-medium text-[var(--fv-text-secondary)]">
                   Due date
                 </span>
@@ -724,6 +862,19 @@ function Tasks() {
                   onChange={(event) => setDueDate(event.target.value)}
                   className={inputClass}
                 />
+              </label>
+
+              <label>
+                <span className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--fv-text-secondary)]">
+                  <Bell size={14} aria-hidden="true" /> Reminder
+                </span>
+                <input
+                  type="datetime-local"
+                  value={reminderAt}
+                  onChange={(event) => setReminderAt(event.target.value)}
+                  className={inputClass}
+                />
+                <span className="mt-1 block text-xs text-[var(--fv-text-muted)]">Sends an in-app notification to the assignee or project owner.</span>
               </label>
             </div>
 
@@ -1000,6 +1151,7 @@ function Tasks() {
               onStatusChange={handleStatusChange}
               onDeleteTask={handleDeleteTask}
               onEditTask={handleEditTask}
+              onTasksChanged={refreshTasks}
             />
           )}
         </section>

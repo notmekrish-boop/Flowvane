@@ -1,0 +1,1 @@
+ALTER TABLE "Task" ADD COLUMN "customFields" JSONB NOT NULL DEFAULT '{}'::jsonb;

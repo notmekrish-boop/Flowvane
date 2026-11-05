@@ -31,5 +31,9 @@ backend/.agents/
 backend/.claude/
 backend/.windsurf/
 backend/skills-lock.json
+# Project-local agent skills are workstation tooling, not app source.
+/.agents/skills/
+# Generated repository structure snapshots used during development.
+/*-structure.txt
 # Local database backups
 backups/

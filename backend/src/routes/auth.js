@@ -3,6 +3,7 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma.js";
+import { authRateLimit, registrationRateLimit } from "../middleware/rateLimit.js";
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is missing from the .env file");
 }
@@ -19,7 +20,7 @@ function generateToken(userId) {
 }
 
 // REGISTER USER
-router.post("/register", async (req, res) => {
+router.post("/register", registrationRateLimit, async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
@@ -81,19 +82,31 @@ router.post("/register", async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 12);
 
     // Create user
-    const user = await prisma.user.create({
-      data: {
-        name: name.trim(),
-        email: normalizedEmail,
-        passwordHash
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        avatarUrl: true,
-        createdAt: true
-      }
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          name: name.trim(),
+          email: normalizedEmail,
+          passwordHash
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          avatarUrl: true,
+          createdAt: true
+        }
+      });
+
+      await tx.workspace.create({
+        data: {
+          name: `${name.trim()}'s Workspace`,
+          ownerId: createdUser.id,
+          members: { create: { userId: createdUser.id, role: "OWNER" } }
+        }
+      });
+
+      return createdUser;
     });
 
     const token = generateToken(user.id);
@@ -123,7 +136,7 @@ router.post("/register", async (req, res) => {
 });
 
 // LOGIN USER
-router.post("/login", async (req, res) => {
+router.post("/login", authRateLimit, async (req, res) => {
   try {
     const { email, password } = req.body;
 

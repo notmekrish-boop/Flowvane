@@ -1,16 +1,50 @@
 import express from "express";
 import { prisma } from "../lib/prisma.js";
+import { emitUserEvent } from "../realtime/projectChatSocket.js";
+import { workspaceProjectAccess } from "../lib/projectAccess.js";
 
 const router = express.Router();
 
 const validStatuses = ["TODO", "IN_PROGRESS", "COMPLETED"];
 const validPriorities = ["LOW", "MEDIUM", "HIGH"];
 
+function normalizeTaskLabels(labels) {
+  if (!Array.isArray(labels) || labels.length > 20) return null;
+  const unique = new Map();
+  for (const value of labels) {
+    if (typeof value !== "string") return null;
+    const label = value.trim();
+    if (!label) continue;
+    if (label.length > 32) return null;
+    const key = label.toLocaleLowerCase();
+    if (!unique.has(key)) unique.set(key, label);
+  }
+  return [...unique.values()];
+}
+
+function normalizeCustomFields(fields) {
+  if (!fields || typeof fields !== "object" || Array.isArray(fields)) return null;
+  const entries = Object.entries(fields);
+  if (entries.length > 20) return null;
+  const normalized = {};
+  const seen = new Set();
+  for (const [rawKey, rawValue] of entries) {
+    const key = typeof rawKey === "string" ? rawKey.trim() : "";
+    const normalizedKey = key.toLocaleLowerCase();
+    if (!key || key.length > 40 || ["__proto__", "prototype", "constructor"].includes(normalizedKey) || seen.has(normalizedKey)) return null;
+    if (typeof rawValue !== "string" || rawValue.length > 500) return null;
+    seen.add(normalizedKey);
+    if (rawValue.trim()) normalized[key] = rawValue.trim();
+  }
+  return normalized;
+}
+
 // Find a project the logged-in user can access.
 async function findAccessibleProject(projectId, userId) {
   return prisma.project.findFirst({
     where: {
       id: projectId,
+      ...workspaceProjectAccess(userId),
       OR: [
         { ownerId: userId },
         {
@@ -38,11 +72,32 @@ function canManageProject(project, userId) {
   );
 }
 
+function dependencyCreatesCycle(dependencies, taskId, dependsOnTaskId) {
+  const adjacency = new Map();
+  for (const dependency of dependencies) {
+    const current = adjacency.get(dependency.taskId) || [];
+    current.push(dependency.dependsOnTaskId);
+    adjacency.set(dependency.taskId, current);
+  }
+
+  const pending = [dependsOnTaskId];
+  const visited = new Set();
+  while (pending.length) {
+    const current = pending.pop();
+    if (current === taskId) return true;
+    if (visited.has(current)) continue;
+    visited.add(current);
+    pending.push(...(adjacency.get(current) || []));
+  }
+  return false;
+}
+
 // Check whether a user is the owner or a member of this project.
 async function isValidAssignee(projectId, assigneeId) {
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
+      ...workspaceProjectAccess(assigneeId),
       OR: [
         { ownerId: assigneeId },
         {
@@ -81,6 +136,7 @@ async function createTaskAssignedNotification({
         projectId
       }
     });
+    emitUserEvent(recipientId, "notification:changed", {});
   } catch (error) {
     console.error("Create task assignment notification error:", error);
   }
@@ -108,6 +164,7 @@ router.get("/", async (req, res) => {
     const tasks = await prisma.task.findMany({
       where: {
         project: {
+          ...workspaceProjectAccess(req.userId),
           OR: [
             { ownerId: req.userId },
             {
@@ -136,6 +193,9 @@ router.get("/", async (req, res) => {
             name: true,
             email: true
           }
+        },
+        parentTask: {
+          select: { id: true, title: true }
         }
       },
       orderBy: {
@@ -165,7 +225,12 @@ router.post("/projects/:projectId/tasks", async (req, res) => {
       description,
       priority,
       dueDate,
-      assigneeId
+      reminderAt,
+      assigneeId,
+      labels,
+      estimatedMinutes,
+      actualMinutes,
+      customFields
     } = req.body;
 
     if (typeof title !== "string" || !title.trim()) {
@@ -202,6 +267,20 @@ router.post("/projects/:projectId/tasks", async (req, res) => {
       });
     }
 
+    const parsedLabels = labels === undefined ? [] : normalizeTaskLabels(labels);
+    if (parsedLabels === null) {
+      return res.status(400).json({ success: false, message: "Use up to 20 text labels, each 32 characters or fewer." });
+    }
+
+    if (estimatedMinutes !== undefined && estimatedMinutes !== null && (!Number.isInteger(estimatedMinutes) || estimatedMinutes < 0 || estimatedMinutes > 1000000)) {
+      return res.status(400).json({ success: false, message: "Estimated time must be a whole number between 0 and 1,000,000 minutes." });
+    }
+    if (actualMinutes !== undefined && (!Number.isInteger(actualMinutes) || actualMinutes < 0 || actualMinutes > 1000000)) {
+      return res.status(400).json({ success: false, message: "Logged time must be a whole number between 0 and 1,000,000 minutes." });
+    }
+    const parsedCustomFields = customFields === undefined ? {} : normalizeCustomFields(customFields);
+    if (parsedCustomFields === null) return res.status(400).json({ success: false, message: "Use up to 20 custom fields with names up to 40 characters and text values up to 500 characters." });
+
     if (
       assigneeId !== undefined &&
       assigneeId !== null &&
@@ -224,6 +303,12 @@ router.post("/projects/:projectId/tasks", async (req, res) => {
           message: "Invalid due date."
         });
       }
+    }
+
+    let parsedReminderAt;
+    if (reminderAt !== undefined && reminderAt !== null && reminderAt !== "") {
+      parsedReminderAt = new Date(reminderAt);
+      if (Number.isNaN(parsedReminderAt.getTime())) return res.status(400).json({ success: false, message: "Invalid reminder date and time." });
     }
 
     const project = await findAccessibleProject(
@@ -264,7 +349,12 @@ router.post("/projects/:projectId/tasks", async (req, res) => {
         title: title.trim(),
         description: description?.trim() || null,
         priority: taskPriority,
+        labels: parsedLabels,
+        estimatedMinutes: estimatedMinutes ?? null,
+        actualMinutes: actualMinutes ?? 0,
+        customFields: parsedCustomFields,
         dueDate: parsedDueDate,
+        reminderAt: parsedReminderAt,
         projectId: project.id,
         assigneeId: assigneeId || null
       },
@@ -275,6 +365,9 @@ router.post("/projects/:projectId/tasks", async (req, res) => {
             name: true,
             email: true
           }
+        },
+        parentTask: {
+          select: { id: true, title: true }
         }
       }
     });
@@ -338,6 +431,9 @@ router.get("/projects/:projectId/tasks", async (req, res) => {
             name: true,
             email: true
           }
+        },
+        parentTask: {
+          select: { id: true, title: true }
         }
       },
       orderBy: {
@@ -356,6 +452,217 @@ router.get("/projects/:projectId/tasks", async (req, res) => {
       success: false,
       message: "Unable to fetch project tasks."
     });
+  }
+});
+
+// GET DIRECT SUBTASKS FOR A TASK
+router.get("/:taskId/subtasks", async (req, res) => {
+  try {
+    const parent = await prisma.task.findUnique({
+      where: { id: req.params.taskId },
+      select: { id: true, projectId: true }
+    });
+
+    if (!parent) {
+      return res.status(404).json({ success: false, message: "Task not found." });
+    }
+
+    const project = await findAccessibleProject(parent.projectId, req.userId);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found or access denied." });
+    }
+
+    const subtasks = await prisma.task.findMany({
+      where: { parentTaskId: parent.id },
+      include: {
+        assignee: { select: { id: true, name: true, email: true } }
+      },
+      orderBy: { createdAt: "asc" }
+    });
+
+    return res.status(200).json({ success: true, subtasks });
+  } catch (error) {
+    console.error("Fetch subtasks error:", error);
+    return res.status(500).json({ success: false, message: "Unable to fetch subtasks." });
+  }
+});
+
+// CREATE A ONE-LEVEL SUBTASK
+router.post("/:taskId/subtasks", async (req, res) => {
+  try {
+    const { title, description, priority, dueDate, assigneeId } = req.body;
+
+    if (typeof title !== "string" || !title.trim() || title.trim().length > 150) {
+      return res.status(400).json({ success: false, message: "Subtask title is required and must be 150 characters or fewer." });
+    }
+    if (description !== undefined && description !== null && typeof description !== "string") {
+      return res.status(400).json({ success: false, message: "Description must be text." });
+    }
+    if (priority !== undefined && !validPriorities.includes(priority)) {
+      return res.status(400).json({ success: false, message: "Invalid task priority." });
+    }
+    if (assigneeId !== undefined && assigneeId !== null && typeof assigneeId !== "string") {
+      return res.status(400).json({ success: false, message: "Invalid assignee ID." });
+    }
+
+    let parsedDueDate = null;
+    if (dueDate !== undefined && dueDate !== null && dueDate !== "") {
+      parsedDueDate = new Date(dueDate);
+      if (Number.isNaN(parsedDueDate.getTime())) {
+        return res.status(400).json({ success: false, message: "Invalid due date." });
+      }
+    }
+
+    const parent = await prisma.task.findUnique({
+      where: { id: req.params.taskId },
+      select: { id: true, title: true, projectId: true, parentTaskId: true }
+    });
+    if (!parent) {
+      return res.status(404).json({ success: false, message: "Task not found." });
+    }
+    if (parent.parentTaskId) {
+      return res.status(400).json({ success: false, message: "Subtasks can only be created from a parent task." });
+    }
+
+    const project = await findAccessibleProject(parent.projectId, req.userId);
+    if (!project) {
+      return res.status(404).json({ success: false, message: "Project not found or access denied." });
+    }
+    if (!canManageProject(project, req.userId)) {
+      return res.status(403).json({ success: false, message: "Only project owners and admins can create subtasks." });
+    }
+    if (assigneeId) {
+      const validAssignee = await isValidAssignee(parent.projectId, assigneeId);
+      if (!validAssignee) {
+        return res.status(400).json({ success: false, message: "Assignee must belong to this project." });
+      }
+    }
+
+    const subtask = await prisma.task.create({
+      data: {
+        title: title.trim(),
+        description: description?.trim() || null,
+        priority: priority || "MEDIUM",
+        dueDate: parsedDueDate,
+        projectId: parent.projectId,
+        parentTaskId: parent.id,
+        assigneeId: assigneeId || null
+      },
+      include: { assignee: { select: { id: true, name: true, email: true } } }
+    });
+
+    await createTaskActivity({
+      taskId: subtask.id,
+      userId: req.userId,
+      type: "TASK_CREATED",
+      details: `Subtask created under "${parent.title}".`
+    });
+    if (subtask.assigneeId) {
+      await createTaskAssignedNotification({
+        recipientId: subtask.assigneeId,
+        actorId: req.userId,
+        taskId: subtask.id,
+        projectId: parent.projectId,
+        taskTitle: subtask.title
+      });
+    }
+
+    return res.status(201).json({ success: true, message: "Subtask created successfully.", subtask });
+  } catch (error) {
+    console.error("Create subtask error:", error);
+    return res.status(500).json({ success: false, message: "Unable to create subtask." });
+  }
+});
+
+// LIST DEPENDENCIES AND SAME-PROJECT TASKS THAT CAN BE LINKED.
+router.get("/:taskId/dependencies", async (req, res) => {
+  try {
+    const task = await prisma.task.findUnique({ where: { id: req.params.taskId }, select: { id: true, projectId: true } });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found." });
+    const project = await findAccessibleProject(task.projectId, req.userId);
+    if (!project) return res.status(404).json({ success: false, message: "Project not found or access denied." });
+
+    const [dependencies, availableTasks] = await Promise.all([
+      prisma.taskDependency.findMany({
+        where: { taskId: task.id },
+        include: { dependsOnTask: { select: { id: true, title: true, status: true } } },
+        orderBy: { createdAt: "asc" }
+      }),
+      prisma.task.findMany({
+        where: { projectId: project.id, id: { not: task.id } },
+        select: { id: true, title: true, status: true },
+        orderBy: { createdAt: "desc" },
+        take: 200
+      })
+    ]);
+    return res.json({ success: true, dependencies, availableTasks });
+  } catch (error) {
+    console.error("Fetch task dependencies error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load task dependencies." });
+  }
+});
+
+// ADD A TASK PREREQUISITE.
+router.post("/:taskId/dependencies", async (req, res) => {
+  try {
+    const { dependsOnTaskId } = req.body || {};
+    if (typeof dependsOnTaskId !== "string" || !dependsOnTaskId) {
+      return res.status(400).json({ success: false, message: "Choose a task this one depends on." });
+    }
+    const task = await prisma.task.findUnique({ where: { id: req.params.taskId }, select: { id: true, title: true, projectId: true } });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found." });
+    const project = await findAccessibleProject(task.projectId, req.userId);
+    if (!project) return res.status(404).json({ success: false, message: "Project not found or access denied." });
+    if (!canManageProject(project, req.userId)) return res.status(403).json({ success: false, message: "Only project owners and admins can change dependencies." });
+    if (task.id === dependsOnTaskId) return res.status(400).json({ success: false, message: "A task cannot depend on itself." });
+
+    const prerequisite = await prisma.task.findFirst({
+      where: { id: dependsOnTaskId, projectId: project.id },
+      select: { id: true, title: true, status: true }
+    });
+    if (!prerequisite) return res.status(400).json({ success: false, message: "Dependencies must be tasks in the same project." });
+
+    const existing = await prisma.taskDependency.findMany({
+      where: { task: { projectId: project.id } },
+      select: { taskId: true, dependsOnTaskId: true }
+    });
+    if (dependencyCreatesCycle(existing, task.id, prerequisite.id)) {
+      return res.status(400).json({ success: false, message: "This dependency would create a cycle." });
+    }
+
+    const dependency = await prisma.taskDependency.create({
+      data: { taskId: task.id, dependsOnTaskId: prerequisite.id },
+      include: { dependsOnTask: { select: { id: true, title: true, status: true } } }
+    });
+    await createTaskActivity({ taskId: task.id, userId: req.userId, type: "TASK_UPDATED", details: `Added prerequisite: "${prerequisite.title}".` });
+    return res.status(201).json({ success: true, dependency });
+  } catch (error) {
+    if (error?.code === "P2002") return res.status(409).json({ success: false, message: "That dependency already exists." });
+    console.error("Create task dependency error:", error);
+    return res.status(500).json({ success: false, message: "Unable to add task dependency." });
+  }
+});
+
+// REMOVE A TASK PREREQUISITE.
+router.delete("/:taskId/dependencies/:dependsOnTaskId", async (req, res) => {
+  try {
+    const task = await prisma.task.findUnique({ where: { id: req.params.taskId }, select: { id: true, projectId: true } });
+    if (!task) return res.status(404).json({ success: false, message: "Task not found." });
+    const project = await findAccessibleProject(task.projectId, req.userId);
+    if (!project) return res.status(404).json({ success: false, message: "Project not found or access denied." });
+    if (!canManageProject(project, req.userId)) return res.status(403).json({ success: false, message: "Only project owners and admins can change dependencies." });
+
+    const dependency = await prisma.taskDependency.findUnique({
+      where: { taskId_dependsOnTaskId: { taskId: task.id, dependsOnTaskId: req.params.dependsOnTaskId } },
+      include: { dependsOnTask: { select: { title: true } } }
+    });
+    if (!dependency) return res.status(404).json({ success: false, message: "Dependency not found." });
+    await prisma.taskDependency.delete({ where: { id: dependency.id } });
+    await createTaskActivity({ taskId: task.id, userId: req.userId, type: "TASK_UPDATED", details: `Removed prerequisite: "${dependency.dependsOnTask.title}".` });
+    return res.json({ success: true, message: "Dependency removed." });
+  } catch (error) {
+    console.error("Delete task dependency error:", error);
+    return res.status(500).json({ success: false, message: "Unable to remove task dependency." });
   }
 });
 
@@ -534,7 +841,12 @@ router.patch("/:id", async (req, res) => {
       status,
       priority,
       dueDate,
-      assigneeId
+      reminderAt,
+      assigneeId,
+      labels,
+      estimatedMinutes,
+      actualMinutes,
+      customFields
     } = req.body;
 
     const allowedFields = [
@@ -543,7 +855,12 @@ router.patch("/:id", async (req, res) => {
       "status",
       "priority",
       "dueDate",
-      "assigneeId"
+      "reminderAt",
+      "assigneeId",
+      "labels",
+      "estimatedMinutes",
+      "actualMinutes",
+      "customFields"
     ];
 
     const suppliedFields = Object.keys(req.body);
@@ -597,6 +914,20 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    const parsedLabels = labels === undefined ? undefined : normalizeTaskLabels(labels);
+    if (labels !== undefined && parsedLabels === null) {
+      return res.status(400).json({ success: false, message: "Use up to 20 text labels, each 32 characters or fewer." });
+    }
+
+    if (estimatedMinutes !== undefined && estimatedMinutes !== null && (!Number.isInteger(estimatedMinutes) || estimatedMinutes < 0 || estimatedMinutes > 1000000)) {
+      return res.status(400).json({ success: false, message: "Estimated time must be a whole number between 0 and 1,000,000 minutes." });
+    }
+    if (actualMinutes !== undefined && (!Number.isInteger(actualMinutes) || actualMinutes < 0 || actualMinutes > 1000000)) {
+      return res.status(400).json({ success: false, message: "Logged time must be a whole number between 0 and 1,000,000 minutes." });
+    }
+    const parsedCustomFields = customFields === undefined ? undefined : normalizeCustomFields(customFields);
+    if (customFields !== undefined && parsedCustomFields === null) return res.status(400).json({ success: false, message: "Use up to 20 custom fields with names up to 40 characters and text values up to 500 characters." });
+
     if (
       assigneeId !== undefined &&
       assigneeId !== null &&
@@ -619,6 +950,12 @@ router.patch("/:id", async (req, res) => {
           message: "Invalid due date."
         });
       }
+    }
+
+    let parsedReminderAt;
+    if (reminderAt !== undefined && reminderAt !== null && reminderAt !== "") {
+      parsedReminderAt = new Date(reminderAt);
+      if (Number.isNaN(parsedReminderAt.getTime())) return res.status(400).json({ success: false, message: "Invalid reminder date and time." });
     }
 
     // Find the task first.
@@ -683,6 +1020,20 @@ router.patch("/:id", async (req, res) => {
       }
     }
 
+    if (status === "COMPLETED") {
+      const blockers = await prisma.taskDependency.findMany({
+        where: {
+          taskId: existingTask.id,
+          dependsOnTask: { status: { not: "COMPLETED" } }
+        },
+        include: { dependsOnTask: { select: { title: true } } }
+      });
+      if (blockers.length) {
+        const names = blockers.map(({ dependsOnTask }) => dependsOnTask.title).join(", ");
+        return res.status(409).json({ success: false, message: `Complete prerequisite tasks first: ${names}.` });
+      }
+    }
+
     // Validate a newly selected assignee.
     if (assigneeId) {
       const validAssignee = await isValidAssignee(
@@ -715,8 +1066,16 @@ router.patch("/:id", async (req, res) => {
         ...(priority !== undefined && {
           priority
         }),
+        ...(parsedLabels !== undefined && { labels: parsedLabels }),
+        ...(estimatedMinutes !== undefined && { estimatedMinutes }),
+        ...(actualMinutes !== undefined && { actualMinutes }),
+        ...(parsedCustomFields !== undefined && { customFields: parsedCustomFields }),
         ...(dueDate !== undefined && {
           dueDate: parsedDueDate ?? null
+        }),
+        ...(reminderAt !== undefined && {
+          reminderAt: parsedReminderAt ?? null,
+          ...(existingTask.reminderAt?.getTime() !== parsedReminderAt?.getTime() && { reminderSentAt: null })
         }),
         ...(assigneeId !== undefined && {
           assigneeId: assigneeId || null
@@ -807,6 +1166,25 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
+    if (parsedLabels !== undefined && JSON.stringify(parsedLabels) !== JSON.stringify(existingTask.labels)) {
+      await createTaskActivity({
+        taskId: task.id,
+        userId: req.userId,
+        type: "TASK_UPDATED",
+        details: "Task labels updated."
+      });
+    }
+
+    if (estimatedMinutes !== undefined && estimatedMinutes !== existingTask.estimatedMinutes) {
+      await createTaskActivity({ taskId: task.id, userId: req.userId, type: "TASK_UPDATED", details: `Estimated time changed: ${existingTask.estimatedMinutes ?? "Not set"} → ${estimatedMinutes ?? "Not set"} minutes.` });
+    }
+    if (actualMinutes !== undefined && actualMinutes !== existingTask.actualMinutes) {
+      await createTaskActivity({ taskId: task.id, userId: req.userId, type: "TASK_UPDATED", details: `Logged time changed: ${existingTask.actualMinutes} → ${actualMinutes} minutes.` });
+    }
+    if (parsedCustomFields !== undefined && JSON.stringify(parsedCustomFields) !== JSON.stringify(existingTask.customFields)) {
+      await createTaskActivity({ taskId: task.id, userId: req.userId, type: "TASK_UPDATED", details: "Task custom fields updated." });
+    }
+
     const oldDueDate = existingTask.dueDate
       ? existingTask.dueDate.toLocaleDateString("en-IN")
       : "No due date";
@@ -823,6 +1201,17 @@ router.patch("/:id", async (req, res) => {
         userId: req.userId,
         type: "TASK_UPDATED",
         details: `Due date changed: ${oldDueDate} → ${newDueDate}.`
+      });
+    }
+
+    if (reminderAt !== undefined && existingTask.reminderAt?.getTime() !== task.reminderAt?.getTime()) {
+      const previousReminder = existingTask.reminderAt?.toLocaleString("en-IN") || "No reminder";
+      const nextReminder = task.reminderAt?.toLocaleString("en-IN") || "No reminder";
+      await createTaskActivity({
+        taskId: task.id,
+        userId: req.userId,
+        type: "TASK_UPDATED",
+        details: `Reminder changed: ${previousReminder} → ${nextReminder}.`
       });
     }
 

@@ -3,13 +3,15 @@ import { useNavigate } from "react-router-dom";
 import {
   Plus, Trash2, FolderKanban, X, Search, ArrowUpDown,
   CheckCircle2, Clock3, LayoutGrid, RefreshCw, Users,
-} from "lucide-react";
+} from "../components/icons";
 import { useAuth } from "../context/AuthContext";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { API_URL } from "../lib/api.js";
 
-const API_URL = "http://localhost:5000/api";
 
 function Projects() {
   const { token, user } = useAuth();
+  const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -78,7 +80,7 @@ function Projects() {
     try {
       const result = await apiRequest("/projects", {
         method: "POST",
-        body: JSON.stringify({ name: name.trim(), description: description.trim() }),
+        body: JSON.stringify({ name: name.trim(), description: description.trim(), workspaceId: activeWorkspaceId }),
       });
       setProjects((previous) => [{
         ...result.project,

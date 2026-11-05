@@ -1,6 +1,8 @@
 
 import express from "express";
 import { prisma } from "../lib/prisma.js";
+import { emitUserEvent } from "../realtime/projectChatSocket.js";
+import { workspaceProjectAccess } from "../lib/projectAccess.js";
 
 const router = express.Router();
 
@@ -9,7 +11,11 @@ router.get("/", async (req, res) => {
   try {
     const notifications = await prisma.notification.findMany({
       where: {
-        recipientId: req.userId
+        recipientId: req.userId,
+        OR: [
+          { projectId: null },
+          { project: { ...workspaceProjectAccess(req.userId) } }
+        ]
       },
       orderBy: {
         createdAt: "desc"
@@ -61,6 +67,7 @@ router.patch("/:id/read", async (req, res) => {
           isRead: true
         }
       });
+    emitUserEvent(req.userId, "notification:changed", {});
 
     res.status(200).json({
       success: true,
@@ -89,6 +96,7 @@ router.patch("/read-all", async (req, res) => {
         isRead: true
       }
     });
+    emitUserEvent(req.userId, "notification:changed", {});
 
     res.status(200).json({
       success: true,
@@ -126,6 +134,7 @@ router.delete("/:id", async (req, res) => {
         id: notification.id
       }
     });
+    emitUserEvent(req.userId, "notification:changed", {});
 
     res.status(200).json({
       success: true,

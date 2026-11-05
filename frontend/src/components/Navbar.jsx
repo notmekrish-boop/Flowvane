@@ -1,5 +1,6 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { io } from "socket.io-client";
 import { useNavigate } from "react-router-dom";
 import {
   Search,
@@ -17,10 +18,11 @@ import {
   Moon,
   LogOut,
   Camera,
-} from "lucide-react";
+} from "./icons";
 import { useAuth } from "../context/AuthContext";
+import { useWorkspace } from "../context/WorkspaceContext";
+import { API_URL, SOCKET_URL } from "../lib/api.js";
 
-const API_URL = "http://localhost:5000/api";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-slate-800 outline-none transition focus:border-[#7068FF] focus:ring-2 focus:ring-[#7068FF]/20 dark:border-[#30313A] dark:bg-[#101116] dark:text-[#C6C6D0]";
@@ -36,6 +38,7 @@ const secondaryButtonClass =
 
 function Navbar() {
   const { user, token, updateUser, logout } = useAuth();
+  const { activeWorkspaceId } = useWorkspace();
   const navigate = useNavigate();
 
   const [notifications, setNotifications] = useState([]);
@@ -85,7 +88,7 @@ function Navbar() {
     setProfileName(user?.name || "");
   }, [user?.name]);
 
-  const getToken = () => localStorage.getItem("token");
+  const getToken = useCallback(() => localStorage.getItem("token"), []);
 
   const handleProfileSave = async (avatarUrl) => {
     try {
@@ -143,7 +146,7 @@ function Navbar() {
     navigate("/login", { replace: true });
   };
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     const currentToken = getToken();
     if (!currentToken) return;
 
@@ -169,14 +172,29 @@ function Navbar() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getToken]);
 
   useEffect(() => {
     fetchNotifications();
 
     const interval = setInterval(fetchNotifications, 30000);
     return () => clearInterval(interval);
-  }, [user?.id]);
+  }, [fetchNotifications, user?.id]);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const socket = io(SOCKET_URL, {
+      autoConnect: false,
+      auth: { token },
+      transports: ["websocket", "polling"]
+    });
+    socket.on("notification:changed", fetchNotifications);
+    socket.connect();
+    return () => {
+      socket.off("notification:changed", fetchNotifications);
+      socket.disconnect();
+    };
+  }, [fetchNotifications, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -265,6 +283,7 @@ function Navbar() {
         body: JSON.stringify({
           name: projectForm.name.trim(),
           description: projectForm.description.trim(),
+          workspaceId: activeWorkspaceId,
         }),
       });
 
@@ -744,9 +763,11 @@ function Navbar() {
                         previous === "dark" ? "light" : "dark"
                       )
                     }
+                    aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                    title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
                     className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:bg-slate-200 dark:border-[#3A3B43] dark:bg-[#24252B] dark:text-[#C6C6D0] dark:hover:bg-[#34353E]"
                   >
-                    {theme === "dark" ? "Dark" : "Light"}
+                    {theme === "dark" ? "Use light" : "Use dark"}
                   </button>
                 </div>
 

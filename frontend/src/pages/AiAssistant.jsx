@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Send, Plus, Sparkles, User, Loader2, Check, X, MessageSquare, Trash2, Pencil, Check as Save, X as Close, Brain, Trash } from "lucide-react";
+import { AnimatePresence, MotionConfig, motion, useReducedMotion } from "motion/react";
+import { Bot, Send, Plus, Sparkles, User, Loader2, Check, X, MessageSquare, Trash2, Pencil, Check as Save, X as Close, Brain, Trash } from "../components/icons";
 import { useAuth } from "../context/AuthContext";
+import { useWorkspace } from "../context/WorkspaceContext";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { API_URL } from "../lib/api.js";
 
-const API = "http://localhost:5000/api";
 const starterPrompts = [
   "Help me plan a new project",
   "How can I prioritize my tasks?",
@@ -12,8 +14,34 @@ const starterPrompts = [
   "Give me tips to improve team collaboration",
 ];
 
+function partialReplyFromJson(raw) {
+  const marker = '"reply":"';
+  const start = raw.indexOf(marker);
+  if (start < 0) return "";
+  let output = "";
+  for (let index = start + marker.length; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (character === '"') break;
+    if (character !== "\\") { output += character; continue; }
+    const escape = raw[index + 1];
+    if (!escape) break;
+    const simpleEscapes = { '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t" };
+    if (Object.hasOwn(simpleEscapes, escape)) { output += simpleEscapes[escape]; index += 1; continue; }
+    if (escape === "u") {
+      const hex = raw.slice(index + 2, index + 6);
+      if (!/^[\da-f]{4}$/i.test(hex)) break;
+      output += String.fromCharCode(Number.parseInt(hex, 16));
+      index += 5;
+      continue;
+    }
+    break;
+  }
+  return output;
+}
+
 function AiAssistant() {
   const { token } = useAuth();
+  const { activeWorkspace, activeWorkspaceId } = useWorkspace();
   const [conversations, setConversations] = useState([]);
   const [conversationId, setConversationId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -29,16 +57,24 @@ function AiAssistant() {
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const messageEndRef = useRef(null);
+  const reduceMotion = useReducedMotion();
 
   const apiRequest = useCallback(async (path, options = {}) => {
-    const response = await fetch(`${API}${path}`, {
+    let requestPath = path;
+    if (activeWorkspaceId && (path.startsWith("/conversations") || path.startsWith("/memories"))) {
+      const [pathname, query = ""] = path.split("?");
+      const params = new URLSearchParams(query);
+      params.set("workspaceId", activeWorkspaceId);
+      requestPath = `${pathname}?${params.toString()}`;
+    }
+    const response = await fetch(`${API_URL}${requestPath}`, {
       ...options,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...options.headers },
     });
     const data = await response.json();
     if (!response.ok || !data.success) throw new Error(data.message || "Request failed.");
     return data;
-  }, [token]);
+  }, [activeWorkspaceId, token]);
 
   const loadConversationList = useCallback(async () => {
     const data = await apiRequest("/conversations");
@@ -58,10 +94,16 @@ function AiAssistant() {
   }, [apiRequest]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !activeWorkspaceId) {
+      setHistoryLoading(false);
+      return undefined;
+    }
     let active = true;
     (async () => {
       try {
+        setConversationId(null);
+        setMessages([]);
+        setInput("");
         setHistoryLoading(true);
         const data = await apiRequest("/conversations");
         if (active) setConversations(data.conversations || []);
@@ -74,7 +116,7 @@ function AiAssistant() {
       }
     })();
     return () => { active = false; };
-  }, [token, apiRequest]);
+  }, [token, activeWorkspaceId, apiRequest]);
 
   useEffect(() => { messageEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, loading]);
 
@@ -100,7 +142,7 @@ function AiAssistant() {
 
   async function ensureConversation(firstMessage) {
     if (conversationId) return conversationId;
-    const data = await apiRequest("/conversations", { method: "POST", body: JSON.stringify({ title: firstMessage }) });
+    const data = await apiRequest("/conversations", { method: "POST", body: JSON.stringify({ title: firstMessage, workspaceId: activeWorkspaceId }) });
     setConversationId(data.conversation.id);
     setConversations((current) => [data.conversation, ...current]);
     return data.conversation.id;
@@ -122,13 +164,51 @@ function AiAssistant() {
     const optimisticUser = { role: "user", text: message };
     setMessages((current) => [...current, optimisticUser]);
     setInput(""); setError(""); setLoading(true);
+    let localStreamId = "";
     try {
       const id = await ensureConversation(message);
       await saveMessage(id, optimisticUser);
-      const data = await apiRequest("/ai/chat", {
+      localStreamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setMessages((current) => [...current, { role: "model", text: "", localStreamId }]);
+      const response = await fetch(`${API_URL}/ai/chat`, {
         method: "POST",
-        body: JSON.stringify({ message, history: previousMessages.map((item) => ({ role: item.role, text: item.text })) }),
+        headers: { "Content-Type": "application/json", Accept: "text/event-stream, application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ message, workspaceId: activeWorkspaceId, stream: true, history: previousMessages.map((item) => ({ role: item.role, text: item.text })) }),
       });
+      const contentType = response.headers.get("content-type") || "";
+      let data;
+      if (!response.ok || !contentType.includes("text/event-stream")) {
+        const failure = await response.json().catch(() => ({}));
+        if (!response.ok || !failure.success) throw new Error(failure.message || "AI assistant is temporarily unavailable.");
+        data = failure;
+      } else {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let raw = "";
+        let streamError = "";
+        let finished = false;
+        while (!finished) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          const frames = buffer.split("\n\n");
+          buffer = frames.pop() || "";
+          for (const frame of frames) {
+            const line = frame.split("\n").find((entry) => entry.startsWith("data: "));
+            if (!line) continue;
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "delta") {
+              raw += event.text || "";
+              const partial = partialReplyFromJson(raw);
+              if (partial) setMessages((current) => current.map((item) => item.localStreamId === localStreamId ? { ...item, text: partial } : item));
+            } else if (event.type === "result") data = event.data;
+            else if (event.type === "error") streamError = event.message || "AI assistant is temporarily unavailable.";
+          }
+          finished = done;
+        }
+        if (streamError) throw new Error(streamError);
+        if (!data?.success) throw new Error("The AI stream ended before a response was ready. Please try again.");
+      }
       const assistantMessage = {
         role: "model", text: data.reply || "I couldn't generate a response.",
         proposal: ["create_task", "update_task"].includes(data.type) ? data.proposal : null,
@@ -136,10 +216,13 @@ function AiAssistant() {
         proposalStatus: ["create_task", "update_task"].includes(data.type) ? "pending" : null,
       };
       const saved = await saveMessage(id, assistantMessage);
-      setMessages((current) => [...current, { ...assistantMessage, id: saved.id }]);
+      setMessages((current) => current.map((item) => item.localStreamId === localStreamId ? { ...assistantMessage, id: saved.id } : item));
       await loadConversationList();
       await loadMemories();
-    } catch (err) { setError(err.message || "Something went wrong. Please try again."); }
+    } catch (err) {
+      if (localStreamId) setMessages((current) => current.filter((item) => item.localStreamId !== localStreamId));
+      setError(err.message || "Something went wrong. Please try again.");
+    }
     finally { setLoading(false); }
   }
 
@@ -222,31 +305,32 @@ function AiAssistant() {
   function handleSubmit(event) { event.preventDefault(); sendMessage(); }
 
   return (
+    <MotionConfig reducedMotion="user">
     <main className="min-h-[calc(100vh-72px)] bg-slate-50 px-3 py-4 sm:px-5 lg:px-8">
       <div className="mx-auto flex h-[calc(100vh-112px)] max-w-7xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <aside className={`${sidebarOpen ? "flex" : "hidden"} w-72 shrink-0 flex-col border-r border-slate-200 bg-slate-50 md:flex`}>
           <div className="flex items-center justify-between border-b border-slate-200 p-4">
             <h2 className="font-semibold text-slate-800">Chat history</h2>
-            <button onClick={startNewChat} className="rounded-lg bg-blue-600 p-2 text-white hover:bg-blue-700" title="New chat"><Plus size={17} /></button>
+            <button type="button" onClick={startNewChat} className="rounded-lg bg-[#7068FF] p-2 text-white hover:bg-[#5f56eb] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7068FF]" title="New chat" aria-label="Start a new chat"><Plus size={17} aria-hidden="true" /></button>
           </div>
           <div className="flex-1 space-y-1 overflow-y-auto p-2">
-            {historyLoading && <p className="p-3 text-xs text-slate-500">Loading chats...</p>}
+            {historyLoading && <p className="p-3 text-xs text-slate-500">Loading chats…</p>}
             {!historyLoading && conversations.length === 0 && <p className="p-3 text-sm text-slate-500">Your saved conversations will appear here.</p>}
             {conversations.map((conversation) => (
-              <div key={conversation.id} className={`group rounded-xl p-2 ${conversationId === conversation.id ? "bg-blue-100" : "hover:bg-white"}`}>
+              <div key={conversation.id} className={`group rounded-xl p-2 ${conversationId === conversation.id ? "bg-[#7068FF]/12" : "hover:bg-white"}`}>
                 {editingId === conversation.id ? (
                   <div className="flex gap-1">
                     <input value={editingTitle} onChange={(e) => setEditingTitle(e.target.value)} className="min-w-0 flex-1 rounded border px-2 py-1 text-xs" autoFocus />
-                    <button onClick={() => renameConversation(conversation.id)} title="Save"><Save size={15} /></button>
-                    <button onClick={() => setEditingId(null)} title="Cancel"><Close size={15} /></button>
+                    <button type="button" onClick={() => renameConversation(conversation.id)} title="Save" aria-label="Save conversation title"><Save size={15} /></button>
+                    <button type="button" onClick={() => setEditingId(null)} title="Cancel" aria-label="Cancel title edit"><Close size={15} /></button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-1">
                     <button onClick={() => openConversation(conversation.id)} className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm text-slate-700">
                       <MessageSquare size={15} className="shrink-0 text-slate-400" /><span className="truncate">{conversation.title}</span>
                     </button>
-                    <button onClick={() => { setEditingId(conversation.id); setEditingTitle(conversation.title); }} className="hidden rounded p-1 text-slate-400 hover:text-blue-600 group-hover:block" title="Rename"><Pencil size={13} /></button>
-                    <button onClick={() => deleteConversation(conversation.id)} className="hidden rounded p-1 text-slate-400 hover:text-red-600 group-hover:block" title="Delete"><Trash2 size={13} /></button>
+                    <button type="button" onClick={() => { setEditingId(conversation.id); setEditingTitle(conversation.title); }} className="hidden rounded p-1 text-slate-400 hover:text-[#6258E8] group-hover:block" title="Rename" aria-label={`Rename ${conversation.title}`}><Pencil size={13} aria-hidden="true" /></button>
+                    <button type="button" onClick={() => deleteConversation(conversation.id)} className="hidden rounded p-1 text-slate-400 hover:text-red-600 group-hover:block" title="Delete" aria-label={`Delete ${conversation.title}`}><Trash2 size={13} aria-hidden="true" /></button>
                   </div>
                 )}
                 <p className="ml-6 mt-1 truncate text-[11px] text-slate-400">{conversation.messages?.[0]?.text || new Date(conversation.updatedAt).toLocaleDateString()}</p>
@@ -259,9 +343,9 @@ function AiAssistant() {
         <section className="flex min-w-0 flex-1 flex-col">
           <header className="flex items-center justify-between border-b border-slate-200 px-4 py-4 sm:px-6">
             <div className="flex items-center gap-3">
-              <button className="rounded-lg border px-2 py-2 text-slate-500 md:hidden" onClick={() => setSidebarOpen((value) => !value)} title="Toggle history"><MessageSquare size={17} /></button>
-              <div className="rounded-xl bg-blue-600 p-2.5 text-white"><Bot size={23} /></div>
-              <div><h1 className="font-semibold text-slate-900">TaskPilot AI</h1><p className="text-xs text-slate-500">Your productivity assistant</p></div>
+              <button type="button" className="rounded-lg border px-2 py-2 text-slate-500 md:hidden" onClick={() => setSidebarOpen((value) => !value)} title="Toggle history" aria-label="Toggle chat history" aria-expanded={sidebarOpen}><MessageSquare size={17} aria-hidden="true" /></button>
+              <div className="rounded-xl bg-[#7068FF] p-2.5 text-white"><Bot size={23} /></div>
+              <div><h1 className="font-semibold text-slate-900">Flowvane AI</h1><p className="text-xs text-slate-500">{activeWorkspace ? `Workspace assistant · ${activeWorkspace.name}` : "Choose a workspace to start"}</p></div>
             </div>
             <div className="flex items-center gap-2">
               <button type="button" onClick={() => { setMemoryOpen(true); loadMemories(); }} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">
@@ -273,11 +357,11 @@ function AiAssistant() {
 
           {memoryOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-              <div className="max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
+              <div role="dialog" aria-modal="true" aria-labelledby="memory-title" className="max-h-[80vh] w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-xl">
                 <div className="flex items-center justify-between border-b border-slate-200 p-5">
                   <div className="flex items-center gap-3">
-                    <div className="rounded-xl bg-blue-50 p-2 text-blue-600"><Brain size={22} /></div>
-                    <div><h2 className="font-semibold text-slate-900">TaskPilot AI Memory</h2><p className="text-xs text-slate-500">Facts saved from your conversations</p></div>
+                    <div className="rounded-xl bg-[#7068FF]/10 p-2 text-[#6258E8]"><Brain size={22} aria-hidden="true" /></div>
+                    <div><h2 id="memory-title" className="font-semibold text-slate-900">Flowvane AI Memory</h2><p className="text-xs text-slate-500">Facts saved from your conversations</p></div>
                   </div>
                   <button onClick={() => setMemoryOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close memory panel"><X size={19} /></button>
                 </div>
@@ -287,18 +371,18 @@ function AiAssistant() {
                     <div className="rounded-xl border border-dashed border-slate-300 p-6 text-center">
                       <Brain className="mx-auto mb-2 text-slate-400" size={26} />
                       <p className="font-medium text-slate-700">No saved memories yet</p>
-                      <p className="mt-1 text-sm text-slate-500">TaskPilot AI may save useful project details, goals and preferences that you explicitly share.</p>
+                      <p className="mt-1 text-sm text-slate-500">Flowvane AI may save useful project details, goals and preferences that you explicitly share.</p>
                     </div>
                   )}
                   {memories.map((memory) => (
                     <div key={memory.id} className="flex items-start gap-3 rounded-xl border border-slate-200 p-4">
                       <div className="min-w-0 flex-1">
-                        <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-medium capitalize text-blue-700">{memory.category}</span>
+                        <span className="rounded-full bg-[#7068FF]/10 px-2 py-1 text-[11px] font-medium capitalize text-[#6258E8]">{memory.category}</span>
                         <p className="mt-2 break-words text-sm text-slate-800">{memory.content}</p>
                         <p className="mt-2 text-[11px] text-slate-400">Updated {new Date(memory.updatedAt).toLocaleDateString()}</p>
                       </div>
                       <div className="flex shrink-0 gap-1">
-                        <button onClick={() => editMemory(memory)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-blue-600" title="Edit memory"><Pencil size={15} /></button>
+                        <button onClick={() => editMemory(memory)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-[#6258E8]" title="Edit memory"><Pencil size={15} /></button>
                         <button onClick={() => deleteMemory(memory.id)} className="rounded-lg p-2 text-slate-500 hover:bg-red-50 hover:text-red-600" title="Delete memory"><Trash size={15} /></button>
                       </div>
                     </div>
@@ -309,24 +393,43 @@ function AiAssistant() {
             </div>
           )}
 
-          <section className="flex-1 space-y-5 overflow-y-auto px-4 py-6 sm:px-6">
+          <section className="flex-1 overflow-y-auto px-4 py-6 sm:px-6">
+            <AnimatePresence mode="wait">
             {messages.length === 0 ? (
-              <div className="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center text-center">
-                <div className="mb-5 rounded-2xl bg-blue-50 p-4 text-blue-600"><Sparkles size={30} /></div>
+              <motion.div
+                key="assistant-empty"
+                className="ai-empty-state mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center text-center"
+                initial={reduceMotion ? false : { opacity: 0, y: 14, filter: "blur(8px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -10, filter: "blur(5px)" }}
+                transition={{ duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <motion.div
+                  className="ai-empty-mark mb-5 rounded-2xl bg-[#7068FF]/10 p-4 text-[#6258E8]"
+                  initial={reduceMotion ? false : { opacity: 0, scale: 0.76, rotate: -12 }}
+                  animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                  transition={{ type: "spring", stiffness: 240, damping: 20, delay: 0.08 }}
+                ><Sparkles size={30} /></motion.div>
                 <h2 className="text-2xl font-bold tracking-tight text-slate-900">How can I help you today?</h2>
                 <p className="mt-2 max-w-lg text-sm leading-6 text-slate-500">Ask me about project planning, task prioritization, productivity, or managing your team's work.</p>
-                <div className="mt-8 grid w-full gap-3 sm:grid-cols-2">
-                  {starterPrompts.map((prompt) => <button key={prompt} type="button" onClick={() => sendMessage(prompt)} disabled={loading} className="rounded-xl border border-slate-200 p-4 text-left text-sm text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:opacity-50">{prompt}</button>)}
-                </div>
-              </div>
-            ) : messages.map((item, index) => (
-              <div key={item.id || `${item.role}-${index}`} className={`flex items-start gap-3 ${item.role === "user" ? "justify-end" : "justify-start"}`}>
-                {item.role === "model" && <div className="mt-1 rounded-lg bg-blue-600 p-2 text-white"><Bot size={17} /></div>}
-                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-7 sm:max-w-[75%] ${item.role === "user" ? "rounded-tr-md bg-blue-600 text-white" : "rounded-tl-md bg-slate-100 text-slate-800"}`}>
-                  {item.role === "model" ? <div className="prose prose-sm max-w-none break-words prose-headings:font-bold prose-headings:text-slate-900 prose-p:my-2 prose-li:my-1 prose-strong:text-slate-900 prose-code:rounded prose-code:bg-slate-200 prose-code:px-1 prose-code:py-0.5 prose-code:text-blue-700 prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:bg-slate-900 prose-pre:p-4 prose-pre:text-white prose-table:block prose-table:overflow-x-auto"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown></div> : <p className="whitespace-pre-wrap break-words">{item.text}</p>}
+                <motion.div className="mt-8 grid w-full gap-3 sm:grid-cols-2" initial="hidden" animate="show" variants={{ hidden: {}, show: { transition: { staggerChildren: reduceMotion ? 0 : 0.07, delayChildren: 0.12 } } }}>
+                  {starterPrompts.map((prompt) => (
+                    <motion.button key={prompt} type="button" onClick={() => sendMessage(prompt)} disabled={loading} className="ai-starter-prompt rounded-xl border border-slate-200 p-4 text-left text-sm text-slate-700 transition hover:border-[#7068FF]/50 hover:bg-[#7068FF]/10 disabled:opacity-50" variants={{ hidden: { opacity: 0, y: reduceMotion ? 0 : 9 }, show: { opacity: 1, y: 0, transition: { duration: 0.24, ease: [0.16, 1, 0.3, 1] } } }} whileHover={reduceMotion ? undefined : { y: -2 }} whileTap={reduceMotion ? undefined : { scale: 0.985 }}>
+                      {prompt}
+                    </motion.button>
+                  ))}
+                </motion.div>
+              </motion.div>
+            ) : (
+              <motion.div key="assistant-thread" className="space-y-5" initial={reduceMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.22 }}>
+              <AnimatePresence initial={false}>{messages.map((item, index) => (
+              <motion.div key={item.id || `${item.role}-${index}`} initial={reduceMotion ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }} className={`flex items-start gap-3 ${item.role === "user" ? "justify-end" : "justify-start"}`}>
+                {item.role === "model" && <div className="mt-1 rounded-lg bg-[#7068FF] p-2 text-white"><Bot size={17} /></div>}
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-7 sm:max-w-[75%] ${item.role === "user" ? "rounded-tr-md bg-[#7068FF] text-white" : "rounded-tl-md bg-slate-100 text-slate-800"}`}>
+                  {item.role === "model" ? <div className="prose prose-sm max-w-none break-words prose-headings:font-bold prose-headings:text-slate-900 prose-p:my-2 prose-li:my-1 prose-strong:text-slate-900 prose-code:rounded prose-code:bg-slate-200 prose-code:px-1 prose-code:py-0.5 prose-code:text-[#6258E8] prose-pre:overflow-x-auto prose-pre:rounded-xl prose-pre:bg-slate-900 prose-pre:p-4 prose-pre:text-white prose-table:block prose-table:overflow-x-auto"><ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown></div> : <p className="whitespace-pre-wrap break-words">{item.text}</p>}
                   {item.proposal && (
-                    <div className="mt-4 w-full min-w-[250px] rounded-xl border border-blue-200 bg-white p-4 text-slate-800 shadow-sm">
-                      <div className="mb-3 flex items-center justify-between gap-2"><h3 className="font-semibold">{item.proposalType === "update_task" ? "Task update proposal" : "Task proposal"}</h3><span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700">{item.proposalStatus === "created" ? "Completed" : item.proposalStatus === "cancelled" ? "Cancelled" : "Needs confirmation"}</span></div>
+                    <div className="mt-4 w-full min-w-[250px] rounded-xl border border-[#7068FF]/30 bg-white p-4 text-slate-800 shadow-sm">
+                      <div className="mb-3 flex items-center justify-between gap-2"><h3 className="font-semibold">{item.proposalType === "update_task" ? "Task update proposal" : "Task proposal"}</h3><span className="rounded-full bg-[#7068FF]/10 px-2 py-1 text-xs font-medium text-[#6258E8]">{item.proposalStatus === "created" ? "Completed" : item.proposalStatus === "cancelled" ? "Cancelled" : "Needs confirmation"}</span></div>
                       <p className="text-xs text-slate-500">Project</p><p className="mb-3 font-medium">{item.proposal.projectName}</p>
                       {item.proposalType === "update_task" ? <>
                         <p className="text-xs text-slate-500">Existing task</p><p className="mb-3 font-medium">{item.proposal.taskTitle}</p>
@@ -341,28 +444,32 @@ function AiAssistant() {
                         {item.proposal.description && <><p className="text-xs text-slate-500">Description</p><p className="mb-3 text-sm">{item.proposal.description}</p></>}
                         <div className="flex flex-wrap gap-2 text-xs"><span className="rounded-lg bg-slate-100 px-2 py-1">Priority: {item.proposal.priority}</span>{item.proposal.dueDate && <span className="rounded-lg bg-slate-100 px-2 py-1">Due: {item.proposal.dueDate}</span>}</div>
                       </>}
-                      {item.proposalStatus === "pending" && <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => confirmTask(index)} disabled={proposalBusy} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"><Check size={15} />{item.proposalType === "update_task" ? "Confirm update" : "Confirm and create"}</button><button type="button" onClick={() => cancelTask(index)} disabled={proposalBusy} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"><X size={15} />Cancel</button></div>}
+                      {item.proposalStatus === "pending" && <div className="mt-4 flex flex-wrap gap-2"><button type="button" onClick={() => confirmTask(index)} disabled={proposalBusy} className="inline-flex items-center gap-2 rounded-lg bg-[#7068FF] px-3 py-2 text-sm font-medium text-white hover:bg-[#5f56eb] disabled:opacity-50"><Check size={15} />{item.proposalType === "update_task" ? "Confirm update" : "Confirm and create"}</button><button type="button" onClick={() => cancelTask(index)} disabled={proposalBusy} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"><X size={15} />Cancel</button></div>}
                     </div>
                   )}
                 </div>
                 {item.role === "user" && <div className="mt-1 rounded-lg bg-slate-200 p-2 text-slate-600"><User size={17} /></div>}
-              </div>
-            ))}
-            {loading && <div className="flex items-center gap-3"><div className="rounded-lg bg-blue-600 p-2 text-white"><Bot size={17} /></div><div className="flex items-center gap-2 rounded-2xl rounded-tl-md bg-slate-100 px-4 py-3 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" />TaskPilot AI is thinking...</div></div>}
+              </motion.div>
+              ))}</AnimatePresence>
+              </motion.div>
+            )}
+            </AnimatePresence>
+            {loading && <motion.div className="flex items-center gap-3" initial={reduceMotion ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}><div className="rounded-lg bg-[#7068FF] p-2 text-white"><Bot size={17} /></div><div className="ai-thinking flex items-center gap-2 rounded-2xl rounded-tl-md bg-slate-100 px-4 py-3 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" />Flowvane AI is thinking<span className="ai-thinking-dots" aria-hidden="true"><motion.i animate={reduceMotion ? { opacity: 0.5 } : { opacity: [0.35, 1, 0.35], y: [0, -3, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0 }} /><motion.i animate={reduceMotion ? { opacity: 0.5 } : { opacity: [0.35, 1, 0.35], y: [0, -3, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0.16 }} /><motion.i animate={reduceMotion ? { opacity: 0.5 } : { opacity: [0.35, 1, 0.35], y: [0, -3, 0] }} transition={{ duration: 0.8, repeat: Infinity, delay: 0.32 }} /></span></div></motion.div>}
             <div ref={messageEndRef} />
             {error && <div className="mx-auto max-w-2xl rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
           </section>
 
           <form onSubmit={handleSubmit} className="border-t border-slate-200 bg-white p-4 sm:p-5">
-            <div className="mx-auto flex max-w-4xl items-end gap-3 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
-              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); handleSubmit(event); } }} rows={1} maxLength={4000} placeholder="Message TaskPilot AI..." className="max-h-32 min-h-10 flex-1 resize-y bg-transparent px-2 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400" />
-              <button type="submit" disabled={!input.trim() || loading} className="mb-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Send message"><Send size={17} /></button>
+            <div className="mx-auto flex max-w-4xl items-end gap-3 rounded-2xl border border-slate-300 bg-white p-2 shadow-sm transition-[border-color,box-shadow] focus-within:border-[#7068FF] focus-within:ring-2 focus-within:ring-[#7068FF]/15">
+              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); handleSubmit(event); } }} rows={1} maxLength={4000} placeholder={activeWorkspace ? "Message Flowvane AI…" : "Choose a workspace first…"} disabled={!activeWorkspaceId} className="max-h-32 min-h-10 flex-1 resize-y bg-transparent px-2 py-2 text-sm text-slate-800 outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-60" />
+              <button type="submit" disabled={!activeWorkspaceId || !input.trim() || loading} className="mb-0.5 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7068FF] text-white transition hover:bg-[#5f56eb] disabled:cursor-not-allowed disabled:bg-slate-300" aria-label="Send message"><Send size={17} /></button>
             </div>
             <p className="mt-2 text-center text-xs text-slate-400">Enter to send · Shift + Enter for a new line</p>
           </form>
         </section>
       </div>
     </main>
+    </MotionConfig>
   );
 }
 export default AiAssistant;

@@ -9,10 +9,10 @@ import {
   BriefcaseBusiness,
   Loader2,
   Mail,
-} from "lucide-react";
+} from "../components/icons";
 import { useAuth } from "../context/AuthContext";
+import { API_URL } from "../lib/api.js";
 
-const API_URL = "http://localhost:5000/api";
 
 function StatCard({ label, value, helper, icon: Icon, tone = "blue" }) {
   const tones = {

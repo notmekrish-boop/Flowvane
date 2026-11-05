@@ -12,8 +12,14 @@ import ProjectDetails from "./pages/ProjectDetails";
 import Team from "./pages/Team";
 import AiAssistant from "./pages/AiAssistant";
 import Notes from "./pages/Notes";
+import DiagramStudio from "./pages/DiagramStudio";
+import Workspaces from "./pages/Workspaces";
+import WorkspaceChat from "./pages/WorkspaceChat";
+import DirectMessages from "./pages/DirectMessages";
+import MessageSearch from "./pages/MessageSearch";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { WorkspaceProvider } from "./context/WorkspaceContext";
 
 function ProtectedLayout() {
   const { token } = useAuth();
@@ -35,8 +41,13 @@ function ProtectedLayout() {
           <Route path="/projects/:id" element={<ProjectDetails />} />
           <Route path="/tasks" element={<Tasks />} />
           <Route path="/team" element={<Team />} />
+          <Route path="/workspaces" element={<Workspaces />} />
+          <Route path="/chat" element={<WorkspaceChat />} />
+          <Route path="/messages" element={<DirectMessages />} />
+          <Route path="/search" element={<MessageSearch />} />
           <Route path="/ai-assistant" element={<AiAssistant />} />
           <Route path="/notes" element={<Notes />} />
+          <Route path="/diagrams" element={<DiagramStudio />} />
         </Routes>
       </div>
     </div>
@@ -66,9 +77,11 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <AppRoutes />
-      </BrowserRouter>
+      <WorkspaceProvider>
+        <BrowserRouter>
+          <AppRoutes />
+        </BrowserRouter>
+      </WorkspaceProvider>
     </AuthProvider>
   );
 }

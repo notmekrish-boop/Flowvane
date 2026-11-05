@@ -1,0 +1,2 @@
+ALTER TABLE "Task" ADD COLUMN "estimatedMinutes" INTEGER;
+ALTER TABLE "Task" ADD COLUMN "actualMinutes" INTEGER NOT NULL DEFAULT 0;
