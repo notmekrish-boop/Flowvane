@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { API_URL } from "../lib/api.js";
 import {
   Users,
   UserPlus,
@@ -8,9 +9,8 @@ import {
   Shield,
   Loader2,
   RefreshCw
-} from "lucide-react";
+} from "./icons";
 
-const API_URL = "http://localhost:5000/api";
 
 export default function ProjectTeam({
   projectId,
@@ -300,7 +300,7 @@ export default function ProjectTeam({
           </div>
 
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            Users must already have a registered TaskPilot AI account.
+            Users must already have a registered Flowvane account.
           </p>
         </form>
       )}

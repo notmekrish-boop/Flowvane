@@ -1,12 +1,11 @@
-
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import AuthLayout from "../components/AuthLayout";
 
 function Register() {
   const { register } = useAuth();
   const navigate = useNavigate();
-
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,19 +16,15 @@ function Register() {
   async function handleSubmit(e) {
     e.preventDefault();
     setError("");
-
     if (password !== confirmPassword) {
       setError("Passwords do not match.");
       return;
     }
-
     if (password.length < 8) {
       setError("Password must contain at least 8 characters.");
       return;
     }
-
     setLoading(true);
-
     try {
       await register(name, email, password);
       navigate("/");
@@ -41,101 +36,32 @@ function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-100 px-4 py-8">
-      <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-lg">
-
-        <h1 className="text-3xl font-bold text-slate-800 text-center">
-          TaskPilot AI
-        </h1>
-
-        <p className="text-slate-500 text-center mt-2 mb-8">
-          Create your account and get started
-        </p>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Full name
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Your name"
-              maxLength={80}
-              required
-              className="w-full border border-slate-300 rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Email address
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              required
-              className="w-full border border-slate-300 rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="At least 8 characters"
-              minLength={8}
-              maxLength={72}
-              required
-              className="w-full border border-slate-300 rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-2">
-              Confirm password
-            </label>
-            <input
-              type="password"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Re-enter your password"
-              required
-              className="w-full border border-slate-300 rounded-lg px-4 py-3 outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          {error && (
-            <p className="text-red-600 text-sm">{error}</p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-lg disabled:opacity-60"
-          >
-            {loading ? "Creating account..." : "Create Account"}
-          </button>
-
-        </form>
-
-        <p className="text-center text-sm text-slate-600 mt-6">
-          Already have an account?{" "}
-          <Link to="/login" className="text-blue-600 font-semibold">
-            Sign in
-          </Link>
-        </p>
-
-      </div>
-    </div>
+    <AuthLayout
+      title="Create your account"
+      description="Set up your workspace and bring your projects together."
+      footer={<p className="auth-form-footer">Already have an account? <Link to="/login">Sign in</Link></p>}
+    >
+      <form onSubmit={handleSubmit} className="auth-form auth-form-register">
+        <div className="auth-field">
+          <label htmlFor="register-name">Full name</label>
+          <input id="register-name" name="name" type="text" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" maxLength={80} required />
+        </div>
+        <div className="auth-field">
+          <label htmlFor="register-email">Email address</label>
+          <input id="register-email" name="email" type="email" autoComplete="email" spellCheck={false} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
+        </div>
+        <div className="auth-field">
+          <label htmlFor="register-password">Password</label>
+          <input id="register-password" name="password" type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 8 characters" minLength={8} maxLength={72} required />
+        </div>
+        <div className="auth-field">
+          <label htmlFor="register-confirm-password">Confirm password</label>
+          <input id="register-confirm-password" name="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Re-enter your password" required />
+        </div>
+        {error && <p role="alert" className="auth-error">{error}</p>}
+        <button type="submit" disabled={loading} className="auth-submit">{loading ? "Creating account…" : "Create account"}<span aria-hidden="true">↗</span></button>
+      </form>
+    </AuthLayout>
   );
 }
 

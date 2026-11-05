@@ -1,6 +1,8 @@
 
 import express from "express";
 import { prisma } from "../lib/prisma.js";
+import { workspaceProjectAccess } from "../lib/projectAccess.js";
+import { removeUserFromProjectRoom } from "../realtime/projectChatSocket.js";
 
 const router = express.Router();
 
@@ -9,6 +11,7 @@ async function canManageProject(projectId, userId) {
   const project = await prisma.project.findFirst({
     where: {
       id: projectId,
+      ...workspaceProjectAccess(userId),
       OR: [
         { ownerId: userId },
         {
@@ -31,6 +34,7 @@ router.get("/", async (req, res) => {
   try {
     const projects = await prisma.project.findMany({
       where: {
+        ...workspaceProjectAccess(req.userId),
         OR: [
           { ownerId: req.userId },
           {
@@ -98,11 +102,32 @@ router.post("/", async (req, res) => {
       });
     }
 
+    let workspace;
+    if (typeof req.body.workspaceId === "string" && req.body.workspaceId.trim()) {
+      workspace = await prisma.workspace.findFirst({
+        where: {
+          id: req.body.workspaceId,
+          members: { some: { userId: req.userId } }
+        },
+        select: { id: true }
+      });
+    } else {
+      workspace = await prisma.workspace.findFirst({
+        where: { members: { some: { userId: req.userId, role: "OWNER" } } },
+        select: { id: true }
+      });
+    }
+
+    if (!workspace) {
+      return res.status(403).json({ success: false, message: "Choose a workspace you belong to before creating a project." });
+    }
+
     const project = await prisma.project.create({
       data: {
         name: name.trim(),
         description: description?.trim() || null,
-        ownerId: req.userId
+        ownerId: req.userId,
+        workspaceId: workspace.id
       }
     });
 
@@ -126,6 +151,7 @@ router.get("/:id/members", async (req, res) => {
     const project = await prisma.project.findFirst({
       where: {
         id: req.params.id,
+        ...workspaceProjectAccess(req.userId),
         OR: [
           { ownerId: req.userId },
           {
@@ -216,6 +242,17 @@ router.post("/:id/members", async (req, res) => {
       });
     }
 
+    const workspaceMembership = await prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: project.workspaceId, userId: user.id } },
+      select: { id: true }
+    });
+    if (!workspaceMembership) {
+      return res.status(400).json({
+        success: false,
+        message: "Add this person to the project’s workspace before adding them to the project."
+      });
+    }
+
     if (user.id === project.ownerId) {
       return res.status(400).json({
         success: false,
@@ -292,6 +329,7 @@ router.delete("/:id/members/:memberId", async (req, res) => {
     await prisma.teamMember.delete({
       where: { id: member.id }
     });
+    await removeUserFromProjectRoom(project.id, member.userId);
 
     res.status(200).json({
       success: true,
@@ -312,6 +350,7 @@ router.get("/analytics", async (req, res) => {
   try {
     const accessibleProjects = await prisma.project.findMany({
       where: {
+        ...workspaceProjectAccess(req.userId),
         OR: [
           { ownerId: req.userId },
           { members: { some: { userId: req.userId } } }
@@ -365,6 +404,7 @@ router.get("/:id", async (req, res) => {
     const project = await prisma.project.findFirst({
       where: {
         id: req.params.id,
+        ...workspaceProjectAccess(req.userId),
         OR: [
           { ownerId: req.userId },
           {
@@ -487,7 +527,8 @@ router.delete("/:id", async (req, res) => {
     const project = await prisma.project.findFirst({
       where: {
         id: req.params.id,
-        ownerId: req.userId
+        ownerId: req.userId,
+        ...workspaceProjectAccess(req.userId)
       }
     });
 

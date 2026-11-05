@@ -1,33 +1,138 @@
-import { LayoutDashboard, FolderKanban, CheckSquare, Users, Bot, LogOut, Sparkles, StickyNote } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Bot,
+  BriefcaseBusiness,
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight,
+  FolderKanban,
+  GitBranch,
+  LayoutDashboard,
+  LogOut,
+  Mail,
+  MessageCircle,
+  Search,
+  StickyNote,
+  Users,
+  Workflow,
+} from "./icons";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useWorkspace } from "../context/WorkspaceContext";
+
+const menuItems = [
+  { name: "Dashboard", icon: LayoutDashboard, path: "/" },
+  { name: "Projects", icon: FolderKanban, path: "/projects" },
+  { name: "My Tasks", icon: CheckSquare, path: "/tasks" },
+  { name: "Team", icon: Users, path: "/team" },
+  { name: "Workspaces", icon: BriefcaseBusiness, path: "/workspaces" },
+  { name: "General Chat", icon: MessageCircle, path: "/chat" },
+  { name: "Direct Messages", icon: Mail, path: "/messages" },
+  { name: "Search Messages", icon: Search, path: "/search" },
+  { name: "AI Assistant", icon: Bot, path: "/ai-assistant" },
+  { name: "Notes", icon: StickyNote, path: "/notes" },
+  { name: "Diagrams", icon: GitBranch, path: "/diagrams" },
+];
 
 function Sidebar() {
   const { logout } = useAuth();
+  const { activeWorkspace, activeWorkspaceId, workspaces, selectWorkspace } = useWorkspace();
   const navigate = useNavigate();
-  const menuItems = [
-    { name: "Dashboard", icon: LayoutDashboard, path: "/" },
-    { name: "My Projects", icon: FolderKanban, path: "/projects" },
-    { name: "My Tasks", icon: CheckSquare, path: "/tasks" },
-    { name: "Team", icon: Users, path: "/team" },
-    { name: "AI Assistant", icon: Bot, path: "/ai-assistant" },
-    { name: "Notes", icon: StickyNote, path: "/notes" }
-  ];
-  function handleLogout() { logout(); navigate("/login", { replace: true }); }
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem("taskpilot-sidebar-collapsed") === "true",
+  );
+
+  useEffect(() => {
+    document.documentElement.dataset.sidebar = collapsed ? "collapsed" : "expanded";
+  }, [collapsed]);
+
+  function toggleCollapsed() {
+    setCollapsed((previous) => {
+      const next = !previous;
+      localStorage.setItem("taskpilot-sidebar-collapsed", String(next));
+      document.documentElement.dataset.sidebar = next ? "collapsed" : "expanded";
+      return next;
+    });
+  }
+
+  function handleLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
+
   return (
-    <aside className="sidebar w-64 min-h-screen bg-white border-r border-slate-200 flex flex-col p-5 shrink-0">
-      <button type="button" onClick={() => navigate("/")} className="flex items-center gap-3 mb-10 text-left rounded-xl hover:opacity-80 transition" title="Go to Dashboard">
-        <div className="bg-blue-600 p-2 rounded-xl"><Sparkles className="text-white" size={24} /></div>
-        <div><h1 className="text-xl font-bold text-slate-800">TaskPilot AI</h1><p className="text-xs text-slate-400">Project Management</p></div>
-      </button>
-      <p className="text-xs font-semibold text-slate-400 uppercase mb-4">Workspace</p>
-      <nav className="flex flex-col gap-2">
-        {menuItems.map((item) => { const Icon = item.icon; return <NavLink key={item.name} to={item.path} className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition ${isActive ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}><Icon size={19} />{item.name}</NavLink>; })}
+    <aside className={`sidebar app-sidebar ${collapsed ? "is-collapsed" : ""}`} aria-label="Main navigation">
+      <div className="sidebar-brand-row">
+        <button
+          type="button"
+          onClick={() => navigate("/")}
+          title="Go to dashboard"
+          aria-label="Flowvane home"
+          className="sidebar-brand"
+        >
+          <span className="sidebar-brand-mark"><Workflow size={21} /></span>
+          <span className="sidebar-brand-copy">
+            <strong>Flowvane</strong>
+            <small>{activeWorkspace?.name || "Workspace"}</small>
+          </span>
+        </button>
+        <button
+          type="button"
+          className="sidebar-collapse-button"
+          onClick={toggleCollapsed}
+          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand navigation" : "Collapse navigation"}
+        >
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
+      </div>
+
+      {!collapsed ? (
+        <div className="sidebar-workspace">
+          <label htmlFor="sidebar-workspace">Current workspace</label>
+          <select
+            id="sidebar-workspace"
+            value={activeWorkspaceId || ""}
+            onChange={(event) => selectWorkspace(event.target.value)}
+            title={activeWorkspace?.name || "Choose workspace"}
+          >
+            {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+          </select>
+          <NavLink to="/workspaces">Manage workspaces</NavLink>
+        </div>
+      ) : (
+        <NavLink className="sidebar-workspace-mark" to="/workspaces" title={activeWorkspace?.name || "Current workspace"} aria-label={`Current workspace: ${activeWorkspace?.name || "Workspace"}`}>
+          <BriefcaseBusiness size={18} />
+        </NavLink>
+      )}
+
+      <p className={`sidebar-section-label ${collapsed ? "sr-only" : ""}`}>Workspace</p>
+
+      <nav className="sidebar-nav">
+        {menuItems.map(({ name, icon: Icon, path }) => (
+          <NavLink
+            key={name}
+            to={path}
+            end={path === "/"}
+            title={collapsed ? name : undefined}
+            aria-label={name}
+            className={({ isActive }) => `sidebar-link ${isActive ? "is-active" : ""}`}
+          >
+            <span className="sidebar-link-icon"><Icon size={18} /></span>
+            <span className="sidebar-link-label">{name}</span>
+          </NavLink>
+        ))}
       </nav>
-      <div className="mt-auto flex flex-col gap-2 pt-6">
-        <button onClick={handleLogout} className="flex items-center gap-3 px-4 py-3 text-red-500 hover:bg-red-50 rounded-xl"><LogOut size={19} />Logout</button>
+
+      <div className="sidebar-footer">
+        <button type="button" onClick={handleLogout} className="sidebar-link sidebar-logout" title={collapsed ? "Logout" : undefined} aria-label="Logout">
+          <span className="sidebar-link-icon"><LogOut size={18} /></span>
+          <span className="sidebar-link-label">Logout</span>
+        </button>
       </div>
     </aside>
   );
 }
+
 export default Sidebar;

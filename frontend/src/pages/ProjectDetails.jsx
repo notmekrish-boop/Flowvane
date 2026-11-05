@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from "react";
 import {
+  Link,
   useParams,
   useNavigate,
   useLocation
@@ -8,6 +9,8 @@ import {
 
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   FolderKanban,
   CheckCircle2,
   Clock,
@@ -22,13 +25,15 @@ import {
   Users,
   FileText,
   CalendarRange,
-  Download
-} from "lucide-react";
+  Download,
+  Workflow
+} from "../components/icons";
 
 import { useAuth } from "../context/AuthContext";
 import ProjectTeam from "../components/ProjectTeam";
+import ProjectChat from "../components/ProjectChat";
+import { API_URL } from "../lib/api.js";
 
-const API_URL = "http://localhost:5000/api";
 
 const statusLabels = {
   TODO: "To Do",
@@ -65,6 +70,18 @@ function displayAuditValue(value) {
   return labels[value] || value;
 }
 
+function parseTimelineDate(value) {
+  if (!value) return null;
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+}
+
+function daysBetween(first, second) {
+  return Math.round((second.getTime() - first.getTime()) / 86_400_000);
+}
+
 const priorityColors = {
   HIGH: "bg-red-100 text-red-600",
   MEDIUM: "bg-orange-100 text-orange-600",
@@ -87,6 +104,8 @@ function ProjectDetails() {
 
   const [project, setProject] = useState(null);
   const [tasks, setTasks] = useState([]);
+  const [projectTaskView, setProjectTaskView] = useState("list");
+  const [timelineMonth, setTimelineMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [teamMembers, setTeamMembers] = useState([]);
   const [comments, setComments] = useState([]);
   const [activities, setActivities] = useState([]);
@@ -215,7 +234,7 @@ function ProjectDetails() {
     const html = `<!doctype html>
 <html><head><meta charset="utf-8"><title>${escapeReportHtml(projectName)} - Weekly AI Project Report</title>
 <style>
-  *{box-sizing:border-box} body{font-family:Arial,Helvetica,sans-serif;color:#172033;margin:36px;line-height:1.5}
+  *{box-sizing:border-box} body{font-family:system-ui,sans-serif;color:#172033;margin:36px;line-height:1.5}
   h1{font-size:25px;margin:0 0 5px} h2{font-size:16px;margin:0 0 12px}
   .sub{color:#64748b;margin-bottom:24px}.period{background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:18px;margin:18px 0}
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
@@ -264,7 +283,7 @@ function ProjectDetails() {
     <section class="section"><h2>Next-week priorities</h2>${list(report.nextWeekPriorities, "No priorities suggested.")}</section>
   </div>
   <section class="section"><h2>Outlook</h2>${escapeReportHtml(report.outlook || "No outlook available.")}</section>
-  <div class="footer">Generated from recorded TaskPilot AI project data. AI-generated commentary should be reviewed before operational decisions.</div>
+  <div class="footer">Generated from recorded Flowvane project data. AI-generated commentary should be reviewed before operational decisions.</div>
   <script>window.addEventListener("load",()=>{window.focus();window.print();});</script>
 </body></html>`;
 
@@ -582,6 +601,28 @@ function ProjectDetails() {
     ? Math.round((completedTasks / tasks.length) * 100)
     : 0;
 
+  const timelineYear = timelineMonth.getFullYear();
+  const timelineMonthIndex = timelineMonth.getMonth();
+  const timelineDays = Array.from(
+    { length: new Date(timelineYear, timelineMonthIndex + 1, 0).getDate() },
+    (_, index) => new Date(timelineYear, timelineMonthIndex, index + 1)
+  );
+  const timelineStart = timelineDays[0];
+  const timelineEnd = timelineDays[timelineDays.length - 1];
+  const scheduledTasks = tasks.flatMap((task) => {
+    if (!task.dueDate) return [];
+    const due = parseTimelineDate(task.dueDate);
+    const created = parseTimelineDate(task.createdAt);
+    if (!due || !created) return [];
+    const start = created < due ? created : due;
+    const end = created < due ? due : created;
+    if (start > timelineEnd || end < timelineStart) return [];
+    const startDay = Math.max(0, Math.min(timelineDays.length - 1, daysBetween(timelineStart, start)));
+    const endDay = Math.max(startDay, Math.min(timelineDays.length - 1, daysBetween(timelineStart, end)));
+    return [{ task, startDay, span: endDay - startDay + 1 }];
+  });
+  const unscheduledTasks = tasks.filter((task) => !task.dueDate);
+
   if (loading) {
     return (
       <div className="p-8 text-slate-500">
@@ -595,7 +636,7 @@ function ProjectDetails() {
       <div className="p-8">
         <button
           onClick={() => navigate("/projects")}
-          className="flex items-center gap-2 text-blue-600 mb-6"
+          className="flex items-center gap-2 text-[#6258E8] mb-6"
         >
           <ArrowLeft size={18} />
           Back to Projects
@@ -616,7 +657,7 @@ function ProjectDetails() {
       {/* BACK BUTTON */}
       <button
         onClick={() => navigate("/projects")}
-        className="flex items-center gap-2 text-slate-500 hover:text-blue-600 mb-6"
+        className="flex items-center gap-2 text-slate-500 hover:text-[#6258E8] mb-6"
       >
         <ArrowLeft size={18} />
         Back to Projects
@@ -634,8 +675,8 @@ function ProjectDetails() {
         <div className="flex justify-between items-start gap-4">
 
           <div className="flex items-start gap-4">
-            <div className="bg-blue-100 p-4 rounded-xl">
-              <FolderKanban size={28} className="text-blue-600" />
+            <div className="bg-[#7068FF]/12 p-4 rounded-xl">
+              <FolderKanban size={28} className="text-[#6258E8]" />
             </div>
 
             <div>
@@ -656,7 +697,7 @@ function ProjectDetails() {
           {canManageProject && (
             <button
               onClick={handleEditClick}
-              className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl hover:bg-blue-700 shrink-0"
+              className="flex items-center gap-2 bg-[#7068FF] text-white px-4 py-2 rounded-xl hover:bg-[#5f56eb] shrink-0"
             >
               <Pencil size={16} />
               Edit Project
@@ -710,7 +751,7 @@ function ProjectDetails() {
               <button
                 type="submit"
                 disabled={saving}
-                className="bg-blue-600 text-white px-6 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50"
+                className="bg-[#7068FF] text-white px-6 py-3 rounded-xl hover:bg-[#5f56eb] disabled:opacity-50"
               >
                 {saving ? "Saving..." : "Save Changes"}
               </button>
@@ -735,7 +776,7 @@ function ProjectDetails() {
         <div className="bg-white border rounded-2xl p-6">
           <div className="flex justify-between">
             <p className="text-slate-500">Total Tasks</p>
-            <Circle className="text-blue-600" />
+            <Circle className="text-[#6258E8]" />
           </div>
           <h2 className="text-3xl font-bold mt-4">{tasks.length}</h2>
         </div>
@@ -765,14 +806,14 @@ function ProjectDetails() {
             Project Progress
           </h2>
 
-          <span className="font-semibold text-blue-600">
+          <span className="font-semibold text-[#6258E8]">
             {progress}%
           </span>
         </div>
 
         <div className="h-3 bg-slate-100 rounded-full overflow-hidden">
           <div
-            className="h-full bg-blue-600 rounded-full transition-all"
+            className="h-full bg-[#7068FF] rounded-full transition-all"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -783,7 +824,7 @@ function ProjectDetails() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <Sparkles className="text-violet-600" size={21} />
+              <Sparkles className="text-[#6258E8]" size={21} />
               <h2 className="text-xl font-bold text-slate-800">AI Project Intelligence</h2>
             </div>
             <p className="text-sm text-slate-500 mt-1">
@@ -793,7 +834,7 @@ function ProjectDetails() {
           <button
             onClick={handleGenerateInsights}
             disabled={insightsLoading}
-            className="inline-flex items-center justify-center gap-2 bg-violet-600 text-white px-5 py-3 rounded-xl hover:bg-violet-700 disabled:opacity-50"
+            className="inline-flex items-center justify-center gap-2 bg-[#7068FF] text-white px-5 py-3 rounded-xl hover:bg-[#5f56eb] disabled:opacity-50"
           >
             <Sparkles size={17} />
             {insightsLoading ? "Analyzing..." : projectInsights ? "Refresh Analysis" : "Analyze Project"}
@@ -810,10 +851,10 @@ function ProjectDetails() {
 
         {projectInsights?.insight && (
           <div className="mt-6 space-y-5">
-            <div className="rounded-xl border border-violet-100 bg-violet-50 p-5">
+            <div className="rounded-xl border border-[#7068FF]/20 bg-[#7068FF]/10 p-5">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <h3 className="font-semibold text-slate-800">Project health</h3>
-                <span className="text-sm font-semibold rounded-full bg-white px-3 py-1 text-violet-700">
+                <span className="text-sm font-semibold rounded-full bg-white px-3 py-1 text-[#6258E8]">
                   {projectInsights.insight.health}
                 </span>
               </div>
@@ -870,7 +911,7 @@ function ProjectDetails() {
 
             <div className="border border-slate-200 rounded-xl p-4">
               <h3 className="flex items-center gap-2 font-semibold text-slate-800 mb-3">
-                <Users className="text-blue-600" size={18} /> Team workload
+                <Users className="text-[#6258E8]" size={18} /> Team workload
               </h3>
               {projectInsights.insight.workload.length ? (
                 <div className="overflow-x-auto">
@@ -902,7 +943,7 @@ function ProjectDetails() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <CalendarRange className="text-blue-600" size={21} />
+              <CalendarRange className="text-[#6258E8]" size={21} />
               <h2 className="text-xl font-bold text-slate-800">Weekly AI Project Report</h2>
             </div>
             <p className="text-sm text-slate-500 mt-1">
@@ -914,7 +955,7 @@ function ProjectDetails() {
               <button
                 type="button"
                 onClick={handleDownloadWeeklyReport}
-                className="inline-flex items-center justify-center gap-2 border border-blue-200 text-blue-700 px-4 py-3 rounded-xl hover:bg-blue-50"
+                className="inline-flex items-center justify-center gap-2 border border-[#7068FF]/30 text-[#6258E8] px-4 py-3 rounded-xl hover:bg-[#7068FF]/10"
               >
                 <Download size={17} />
                 Export PDF
@@ -923,7 +964,7 @@ function ProjectDetails() {
             <button
               onClick={handleGenerateWeeklyReport}
               disabled={weeklyReportLoading}
-              className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white px-5 py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 bg-[#7068FF] text-white px-5 py-3 rounded-xl hover:bg-[#5f56eb] disabled:opacity-50"
             >
               <FileText size={17} />
               {weeklyReportLoading ? "Generating..." : weeklyReport ? "Refresh Weekly Report" : "Generate Weekly Report"}
@@ -936,8 +977,8 @@ function ProjectDetails() {
 
         {weeklyReport && (
           <div className="mt-6 space-y-5">
-            <div className="rounded-xl bg-blue-50 border border-blue-100 p-5">
-              <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Reporting period</p>
+            <div className="rounded-xl border border-[#7068FF]/20 bg-[#7068FF]/10 p-5">
+              <p className="text-xs font-semibold uppercase tracking-wide text-[#6258E8]">Reporting period</p>
               <p className="text-sm text-slate-700 mt-1">
                 {new Date(weeklyReport.period.start).toLocaleDateString("en-IN")} – {new Date(weeklyReport.period.end).toLocaleDateString("en-IN")}
               </p>
@@ -1055,7 +1096,7 @@ function ProjectDetails() {
                     <button
                       type="button"
                       onClick={() => setWeeklyReport(saved.data)}
-                      className="text-sm bg-blue-50 text-blue-700 px-4 py-2 rounded-lg hover:bg-blue-100"
+                      className="text-sm bg-[#7068FF]/10 text-[#6258E8] px-4 py-2 rounded-lg hover:bg-[#7068FF]/12"
                     >
                       View
                     </button>
@@ -1083,17 +1124,33 @@ function ProjectDetails() {
         onAdminLoaded={setIsProjectAdmin}
       />
 
+      <ProjectChat projectId={id} canManage={canManageProject} />
+
       {/* PROJECT TASKS */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 mt-8">
 
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-slate-800">
-            Project Tasks
-          </h2>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-800">
+              Project Tasks
+            </h2>
 
-          <p className="text-sm text-slate-500 mt-1">
-            All tasks associated with this project.
-          </p>
+            <p className="text-sm text-slate-500 mt-1">
+              All tasks associated with this project.
+            </p>
+          </div>
+          <Link
+            to={`/notes?projectId=${encodeURIComponent(id)}`}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7068FF]"
+          >
+            <FileText size={16} aria-hidden="true" /> Project notes
+          </Link>
+          <Link
+            to={`/diagrams?projectId=${encodeURIComponent(id)}`}
+            className="inline-flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#7068FF]"
+          >
+            <Workflow size={16} aria-hidden="true" /> Project diagrams
+          </Link>
         </div>
 
         {tasks.length === 0 ? (
@@ -1106,61 +1163,84 @@ function ProjectDetails() {
 
             <button
               onClick={() => navigate("/tasks")}
-              className="mt-4 text-blue-600 hover:underline"
+              className="mt-4 text-[#6258E8] hover:underline"
             >
               Go to My Tasks
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            {tasks.map((task) => (
-              <div
-  key={task.id}
-  data-task-id={task.id}
-  onClick={() => setSelectedTask(task)}
-  className={`border rounded-xl p-4 cursor-pointer transition-all hover:shadow-md ${
-    selectedTaskId === task.id
-      ? "border-blue-500 bg-blue-50 ring-2 ring-blue-200"
-      : "border-slate-200"
-  }`}
->
-                <div className="flex justify-between items-start gap-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-800">
-                      {task.title}
-                    </h3>
-
-                    {task.description && (
-                      <p className="text-sm text-slate-500 mt-1">
-                        {task.description}
-                      </p>
-                    )}
-                  </div>
-
-                  <span className={`text-xs px-3 py-1 rounded-full ${priorityColors[task.priority]}`}>
-                    {task.priority}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4 mt-4 text-xs text-slate-500">
-                  <span className="bg-slate-100 px-3 py-1 rounded-full">
-                    {statusLabels[task.status]}
-                  </span>
-
-                  <span className="text-slate-500">
-                    Assigned to: {task.assignee?.name || "Unassigned"}
-                  </span>
-
-                  {task.dueDate && (
-                    <span className="flex items-center gap-1">
-                      <CalendarDays size={14} />
-                      {new Date(task.dueDate).toLocaleDateString("en-IN")}
-                    </span>
-                  )}
-                </div>
+          <>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div role="group" aria-label="Project task view" className="inline-flex rounded-xl border border-slate-200 p-1">
+                <button type="button" aria-pressed={projectTaskView === "list"} onClick={() => setProjectTaskView("list")} className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition ${projectTaskView === "list" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+                  <FolderKanban size={15} aria-hidden="true" /> List
+                </button>
+                <button type="button" aria-pressed={projectTaskView === "timeline"} onClick={() => setProjectTaskView("timeline")} className={`inline-flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium transition ${projectTaskView === "timeline" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+                  <CalendarRange size={15} aria-hidden="true" /> Timeline
+                </button>
               </div>
-            ))}
-          </div>
+              {projectTaskView === "timeline" && (
+                <div className="flex items-center gap-2">
+                  <button type="button" aria-label="Previous month" onClick={() => setTimelineMonth(new Date(timelineYear, timelineMonthIndex - 1, 1))} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-[#7068FF]"><ChevronLeft size={16} aria-hidden="true" /></button>
+                  <p className="min-w-32 text-center text-sm font-semibold text-slate-700">{timelineMonth.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</p>
+                  <button type="button" aria-label="Next month" onClick={() => setTimelineMonth(new Date(timelineYear, timelineMonthIndex + 1, 1))} className="rounded-lg border border-slate-200 p-2 text-slate-500 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-[#7068FF]"><ChevronRight size={16} aria-hidden="true" /></button>
+                </div>
+              )}
+            </div>
+
+            {projectTaskView === "list" ? (
+              <div className="space-y-4">
+                {tasks.map((task) => (
+                  <button key={task.id} data-task-id={task.id} type="button" onClick={() => setSelectedTask(task)} className={`block w-full rounded-xl border p-4 text-left transition-all hover:shadow-md focus-visible:outline-2 focus-visible:outline-[#7068FF] ${selectedTaskId === task.id ? "border-[#7068FF] bg-[#7068FF]/10 ring-2 ring-[#7068FF]/20" : "border-slate-200"}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-semibold text-slate-800">{task.title}</h3>
+                        {task.parentTask?.title && <p className="mt-1 text-xs text-slate-500">Subtask of {task.parentTask.title}</p>}
+                        {task.description && <p className="mt-1 text-sm text-slate-500">{task.description}</p>}
+                      </div>
+                      <span className={`rounded-full px-3 py-1 text-xs ${priorityColors[task.priority]}`}>{task.priority}</span>
+                    </div>
+                    <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                      <span className="rounded-full bg-slate-100 px-3 py-1">{statusLabels[task.status]}</span>
+                      <span>Assigned to: {task.assignee?.name || "Unassigned"}</span>
+                      {task.dueDate && <span className="flex items-center gap-1"><CalendarDays size={14} aria-hidden="true" />{new Date(task.dueDate).toLocaleDateString("en-IN")}</span>}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                <p className="mb-3 text-xs text-slate-500">Bars run from task creation to due date. Tasks without a due date are listed below.</p>
+                <div className="overflow-x-auto rounded-xl border border-slate-200" aria-label={`Project timeline for ${timelineMonth.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}`}>
+                  <div className="min-w-max">
+                    <div className="grid border-b border-slate-200 bg-slate-50" style={{ gridTemplateColumns: `220px repeat(${timelineDays.length}, minmax(28px, 1fr))` }}>
+                      <div className="sticky left-0 z-20 flex items-center bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">Task</div>
+                      {timelineDays.map((day) => <div key={day.toISOString()} title={day.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long" })} className="border-l border-slate-200 py-2 text-center text-[10px] tabular-nums text-slate-500">{day.getDate()}</div>)}
+                    </div>
+                    {scheduledTasks.length ? scheduledTasks.map(({ task, startDay, span }) => (
+                      <div key={task.id} className="grid border-b border-slate-100 last:border-0" style={{ gridTemplateColumns: `220px repeat(${timelineDays.length}, minmax(28px, 1fr))` }}>
+                        <button type="button" onClick={() => setSelectedTask(task)} title={task.title} className="sticky left-0 z-20 min-w-0 truncate border-r border-slate-200 bg-white px-3 py-3 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-[#7068FF]">{task.title}</button>
+                        <div className="grid min-h-11" style={{ gridTemplateColumns: `repeat(${timelineDays.length}, minmax(28px, 1fr))` }}>
+                          {timelineDays.map((day, index) => <div key={day.toISOString()} aria-hidden="true" className={`row-start-1 border-l border-slate-100 ${day.getDay() === 0 || day.getDay() === 6 ? "bg-slate-50/60" : ""}`} style={{ gridColumn: index + 1 }} />)}
+                          <button type="button" onClick={() => setSelectedTask(task)} title={`${task.title}: ${new Date(task.dueDate).toLocaleDateString("en-IN")}`} aria-label={`${task.title}, scheduled from task creation through ${new Date(task.dueDate).toLocaleDateString("en-IN")}`} className={`z-10 row-start-1 my-3 min-w-3 rounded-full ${task.status === "COMPLETED" ? "bg-emerald-500" : task.status === "IN_PROGRESS" ? "bg-[#7068FF]" : "bg-slate-400"}`} style={{ gridColumn: `${startDay + 1} / span ${span}` }}>
+                            {span >= 6 && <span className="block truncate px-2 text-left text-[10px] font-medium leading-4 text-white">{task.title}</span>}
+                          </button>
+                        </div>
+                      </div>
+                    )) : <p className="p-6 text-center text-sm text-slate-500">No due dates overlap this month.</p>}
+                  </div>
+                </div>
+                {unscheduledTasks.length > 0 && (
+                  <section aria-label="Tasks without due dates" className="mt-5">
+                    <h3 className="mb-2 text-sm font-semibold text-slate-700">No due date <span className="ml-1 text-xs font-normal tabular-nums text-slate-400">{unscheduledTasks.length}</span></h3>
+                    <ul className="divide-y divide-slate-100 rounded-xl border border-slate-200">
+                      {unscheduledTasks.map((task) => <li key={task.id}><button type="button" onClick={() => setSelectedTask(task)} className="w-full px-3 py-2.5 text-left text-sm text-slate-600 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-[#7068FF]">{task.title}</button></li>)}
+                    </ul>
+                  </section>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
       {/* TASK DETAILS MODAL */}
@@ -1298,7 +1378,7 @@ function ProjectDetails() {
             <button
               type="submit"
               disabled={taskSaving}
-              className="flex-1 bg-blue-600 text-white py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50"
+              className="flex-1 bg-[#7068FF] text-white py-3 rounded-xl hover:bg-[#5f56eb] disabled:opacity-50"
             >
               {taskSaving ? "Saving..." : "Save Changes"}
             </button>
@@ -1365,7 +1445,7 @@ function ProjectDetails() {
           {canManageProject && (
             <button
               onClick={handleStartTaskEdit}
-              className="w-full mt-6 border border-blue-600 text-blue-600 py-3 rounded-xl hover:bg-blue-50"
+              className="mt-6 w-full rounded-xl border border-[#7068FF] py-3 text-[#6258E8] hover:bg-[#7068FF]/10"
             >
               <span className="inline-flex items-center justify-center gap-2">
                 <Pencil size={16} />
@@ -1400,7 +1480,7 @@ function ProjectDetails() {
                 <button
                   type="submit"
                   disabled={commentSaving || !commentText.trim()}
-                  className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  className="bg-[#7068FF] text-white px-5 py-2 rounded-lg hover:bg-[#5f56eb] disabled:opacity-50"
                 >
                   {commentSaving ? "Posting..." : "Post Comment"}
                 </button>
@@ -1450,7 +1530,7 @@ function ProjectDetails() {
               <div className="space-y-3">
                 {activities.map((activity) => (
                   <div key={activity.id} className="flex gap-3">
-                    <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-blue-500" />
+                    <div className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-[#7068FF]/100" />
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-slate-800">
                         {activity.user?.name || "A former user"}
@@ -1475,7 +1555,7 @@ function ProjectDetails() {
                               {displayAuditValue(change.oldValue)}
                             </span>
                             <span className="text-slate-400">→</span>
-                            <span className="rounded-md bg-blue-100 px-2 py-1 font-semibold text-blue-700">
+                            <span className="rounded-md bg-[#7068FF]/12 px-2 py-1 font-semibold text-[#6258E8]">
                               {displayAuditValue(change.newValue)}
                             </span>
                           </div>
@@ -1501,7 +1581,7 @@ function ProjectDetails() {
           setCommentText("");
           setCommentError("");
         }}
-        className="w-full mt-6 bg-blue-600 text-white py-3 rounded-xl hover:bg-blue-700"
+        className="w-full mt-6 bg-[#7068FF] text-white py-3 rounded-xl hover:bg-[#5f56eb]"
       >
         Close
       </button>
