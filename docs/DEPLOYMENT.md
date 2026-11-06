@@ -1,6 +1,6 @@
 # Deployment preparation
 
-The app is deployed as a static Vite frontend and a separate Node.js API. Vercel is the selected frontend provider; `frontend/vercel.json` includes the SPA fallback needed for client-side routes. The API remains a long-lived Node service because it runs Socket.IO and a minute-based reminder scheduler.
+The app is deployed as a static Vite frontend and a separate Node.js API. Vercel is the selected frontend provider; `frontend/vercel.json` includes the SPA fallback needed for client-side routes. The API remains a Node service because it runs Socket.IO and a minute-based reminder scheduler. `render.yaml` defines a free Render web service; use a free Neon PostgreSQL database for persistent data.
 
 ## Vercel frontend
 
@@ -13,6 +13,12 @@ Import the GitHub repository into Vercel and set the project **Root Directory** 
 Set `VITE_API_URL` in the Vercel project's Production environment to the full API base URL, ending in `/api`, for example `https://api.example.com/api`. This is a public frontend setting, not a secret. Configure `FRONTEND_URL` on the API service to the production site's exact origin, without a path. Vercel preview domains need to be explicitly allowed by the API before preview builds can use authenticated API or Socket.IO features.
 
 The frontend deployment is only ready to function once the API and PostgreSQL database are deployed and reachable. The API must support WebSocket upgrades for Socket.IO.
+
+## Free Render API and Neon database
+
+The root `render.yaml` is a Render Blueprint for the free web-service plan. Create a free Neon PostgreSQL project separately. Set Render's `DATABASE_URL` to Neon’s pooled connection string and `DIRECT_URL` to its direct connection string; Prisma uses the direct URL for migrations and the pooled URL for application traffic. The Blueprint runs `prisma migrate deploy` at service startup and generates `JWT_SECRET` automatically. During initial Blueprint setup, provide `FRONTEND_URL` as the exact Vercel production origin. `GEMINI_API_KEY` is optional and can be left blank if AI features are not enabled. Never put database URLs or API keys in the repository.
+
+This is a free personal-project deployment, with cold-start tradeoffs: Render sleeps after 15 minutes without inbound traffic, and the next request can take about a minute to wake it. The in-process reminder scheduler pauses while the API sleeps and catches up when it wakes, so reminders are not timely during idle periods. Render's own free Postgres expires after 30 days, which is why this setup uses Neon instead. Neon currently includes 1 GB storage and 100 compute-hours per free project; watch its usage limits.
 
 ## Frontend and API URLs
 
@@ -48,4 +54,4 @@ The Node service exposes `GET /api/health` for liveness and `GET /api/health/rea
 
 ## Still required for production
 
-The backend host, managed PostgreSQL instance, production domain, TLS setup, external log retention, and alerting integration are not configured. The local backup and recovery procedure is documented in [OPERATIONS.md](./OPERATIONS.md); production backups should be stored outside the app host and recovery should be rehearsed against a separate database before cutover.
+The Render Blueprint has not been applied, and the Vercel project/domain, Neon database, production API URL, external log retention, and alerting integration are not configured. The local backup and recovery procedure is documented in [OPERATIONS.md](./OPERATIONS.md); keep an export of important data because this free stack does not provide the same guarantees as a paid production setup.
