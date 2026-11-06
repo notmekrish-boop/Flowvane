@@ -178,7 +178,7 @@ function Dashboard() {
             </ul> : <p className="dashboard-empty">No tasks are assigned to you yet.</p>}
           </section>
 
-          <section className="dashboard-panel">
+          <section className="dashboard-panel dashboard-priority-panel">
             <div className="dashboard-panel-heading"><div><h2>Priority mix</h2><p>All active tasks</p></div><TrendingUp size={18} className="dashboard-heading-icon" /></div>
             <div className="dashboard-priorities">
               {[{ label: "High", key: "HIGH", cls: "high" }, { label: "Medium", key: "MEDIUM", cls: "medium" }, { label: "Low", key: "LOW", cls: "low" }].map((item) => (

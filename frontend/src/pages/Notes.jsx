@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -28,6 +28,8 @@ export default function Notes() {
   const [editorMode, setEditorMode] = useState("edit");
   const [selection, setSelection] = useState({ start: 0, end: 0 });
   const [pendingSave, setPendingSave] = useState(null);
+  const latestSaveVersion = useRef(0);
+  const saveQueue = useRef(Promise.resolve());
   const [actionItems, setActionItems] = useState([]);
   const [actionPanelOpen, setActionPanelOpen] = useState(false);
   const [actionItemsLoading, setActionItemsLoading] = useState(false);
@@ -153,22 +155,41 @@ export default function Notes() {
 
   function updateLocal(field, value) {
     if (!selected) return;
+    const version = ++latestSaveVersion.current;
     setNotes((items) => items.map((n) => n.id === selected.id ? { ...n, [field]: value } : n));
     setSaveState("Saving…");
-    setPendingSave({ id: selected.id, field, value });
+    setPendingSave((current) => ({
+      id: selected.id,
+      version,
+      changes: {
+        ...(current?.id === selected.id ? current.changes : {}),
+        [field]: value,
+      },
+    }));
   }
 
   useEffect(() => {
     if (!pendingSave) return undefined;
     const timeout = setTimeout(async () => {
-      try {
-        const data = await request(`/notes/${pendingSave.id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ [pendingSave.field]: pendingSave.value })
-        });
-        setNotes((items) => items.map((note) => note.id === pendingSave.id ? { ...note, ...data.note } : note));
-        setSaveState("Saved");
-      } catch (err) { setSaveState("Not saved"); setError(err.message); }
+      const { id, changes, version } = pendingSave;
+      saveQueue.current = saveQueue.current.catch(() => {}).then(async () => {
+        try {
+          const data = await request(`/notes/${id}`, {
+            method: "PATCH",
+            body: JSON.stringify(changes)
+          });
+          if (latestSaveVersion.current === version) {
+            setNotes((items) => items.map((note) => note.id === id ? { ...note, ...data.note } : note));
+            setSaveState("Saved");
+            setPendingSave((current) => current?.version === version ? null : current);
+          }
+        } catch (err) {
+          if (latestSaveVersion.current === version) {
+            setSaveState("Not saved");
+            setError(err.message);
+          }
+        }
+      });
     }, 650);
     return () => clearTimeout(timeout);
   }, [pendingSave, request]);
@@ -433,7 +454,7 @@ export default function Notes() {
                 {actionProjectId && !projects.some((project) => project.id === actionProjectId && (project.ownerId === user?.id || project.members?.some((member) => member.role === "ADMIN"))) && <p className="mt-2 text-right text-xs text-amber-700">Only project owners and admins can create tasks.</p>}
               </section>
             )}
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/70 px-3 py-2.5">
+            <div className="notes-linked-diagrams mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2.5">
               <span className="inline-flex items-center gap-2 text-xs font-medium text-slate-600"><GitBranch size={15} aria-hidden="true" /> {linkedDiagrams.length} linked {linkedDiagrams.length === 1 ? "diagram" : "diagrams"}</span>
               <button type="button" onClick={() => navigate(`/diagrams?noteId=${encodeURIComponent(selected.id)}`)} className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-[#6258E8] transition hover:bg-[#7068FF]/10 focus-visible:outline-2 focus-visible:outline-[#7068FF]">
                 <Plus size={14} aria-hidden="true" /> {linkedDiagrams.length ? "Manage diagrams" : "Insert diagram"}

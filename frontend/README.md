@@ -1,16 +1,24 @@
-# React + Vite
+# Flowvane frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The Flowvane client is a React single-page app built with Vite. For the full project overview, PostgreSQL setup, backend instructions, and deployment notes, see the [repository README](../README.md) and [deployment guide](../docs/DEPLOYMENT.md).
 
-Currently, two official plugins are available:
+## Development
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+From this directory:
 
-## React Compiler
+```powershell
+npm install
+Copy-Item .env.example .env
+npm run dev
+```
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The local API defaults to `http://127.0.0.1:5000/api`. Set `VITE_API_URL` in `.env` only when the API uses another address. This value is public in the built assets and must not contain secrets.
 
-## Expanding the Oxlint configuration
+## Quality checks
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```powershell
+npm run lint
+npm run build
+```
+
+The production site is emitted to `dist/`. Configure the static host to serve `index.html` for app routes. When the API is on the same origin, proxy `/api` and `/socket.io/` to the Node service and enable WebSocket upgrades.
