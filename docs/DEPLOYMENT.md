@@ -1,6 +1,18 @@
 # Deployment preparation
 
-The app can be deployed as a static Vite frontend and a separate Node.js API. No provider-specific configuration is included yet.
+The app is deployed as a static Vite frontend and a separate Node.js API. Vercel is the selected frontend provider; `frontend/vercel.json` includes the SPA fallback needed for client-side routes. The API remains a long-lived Node service because it runs Socket.IO and a minute-based reminder scheduler.
+
+## Vercel frontend
+
+Import the GitHub repository into Vercel and set the project **Root Directory** to `frontend`. Vercel should detect Vite; use these settings if it asks:
+
+- Build command: `npm run build`
+- Output directory: `dist`
+- Install command: `npm install` (or leave the detected default)
+
+Set `VITE_API_URL` in the Vercel project's Production environment to the full API base URL, ending in `/api`, for example `https://api.example.com/api`. This is a public frontend setting, not a secret. Configure `FRONTEND_URL` on the API service to the production site's exact origin, without a path. Vercel preview domains need to be explicitly allowed by the API before preview builds can use authenticated API or Socket.IO features.
+
+The frontend deployment is only ready to function once the API and PostgreSQL database are deployed and reachable. The API must support WebSocket upgrades for Socket.IO.
 
 ## Frontend and API URLs
 
@@ -34,6 +46,6 @@ Publish `frontend/dist` with a static host configured for SPA fallback to `index
 
 The Node service exposes `GET /api/health` for liveness and `GET /api/health/ready` for database readiness. Configure the hosting provider to restart the backend after a non-zero exit and use the readiness endpoint for traffic checks.
 
-## Not yet configured
+## Still required for production
 
-There is no selected hosting provider, managed PostgreSQL instance, production domain, TLS setup, external log retention, or alerting integration in this repository. The local backup and recovery procedure is documented in [OPERATIONS.md](./OPERATIONS.md); production backups should be stored outside the app host and recovery should be rehearsed against a separate database before cutover.
+The backend host, managed PostgreSQL instance, production domain, TLS setup, external log retention, and alerting integration are not configured. The local backup and recovery procedure is documented in [OPERATIONS.md](./OPERATIONS.md); production backups should be stored outside the app host and recovery should be rehearsed against a separate database before cutover.

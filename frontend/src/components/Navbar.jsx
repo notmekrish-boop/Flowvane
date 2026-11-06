@@ -52,6 +52,7 @@ function Navbar() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showProfileEditor, setShowProfileEditor] = useState(false);
@@ -144,6 +145,13 @@ function Navbar() {
   const handleLogout = () => {
     logout();
     navigate("/login", { replace: true });
+  };
+
+  const handleSearch = (event) => {
+    event.preventDefault();
+    const query = searchQuery.trim();
+    if (!query) return;
+    navigate(`/search?q=${encodeURIComponent(query)}`);
   };
 
   const fetchNotifications = useCallback(async () => {
@@ -474,7 +482,7 @@ function Navbar() {
     <>
       <header className="relative z-40 flex h-20 items-center justify-between border-b border-slate-200 bg-white px-8 dark:border-[#292A32] dark:bg-[#0D0E12]">
         {/* Search */}
-        <div className="relative w-80 max-w-[42vw]">
+        <form onSubmit={handleSearch} role="search" className="relative w-80 max-w-[42vw]">
           <Search
             className="absolute left-3 top-3 text-slate-400 dark:text-[#777984]"
             size={19}
@@ -482,11 +490,14 @@ function Navbar() {
 
           <input
             type="text"
-            placeholder="Search anything..."
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search messages..."
             aria-label="Search"
+            aria-keyshortcuts="Enter"
             className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-[#7068FF] focus:ring-2 focus:ring-[#7068FF]/20 dark:border-[#30313A] dark:bg-[#101116] dark:text-[#C6C6D0] dark:placeholder:text-[#777984]"
           />
-        </div>
+        </form>
 
         <div className="flex items-center gap-4 sm:gap-5">
           {/* Create New */}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Clock3, FolderKanban, MessageCircle, Search, Users } from "../components/icons";
 import { useAuth } from "../context/AuthContext";
 import { useWorkspace } from "../context/WorkspaceContext";
@@ -19,7 +19,8 @@ function formatTime(value) {
 export default function MessageSearch() {
   const { token } = useAuth();
   const { activeWorkspace, activeWorkspaceId, workspaces, selectWorkspace } = useWorkspace();
-  const [query, setQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const query = searchParams.get("q") || "";
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -52,7 +53,7 @@ export default function MessageSearch() {
 
         <section className="mb-5 rounded-2xl border border-[#E4E4EC] bg-white p-4 dark:border-[#292A32] dark:bg-[#15161C] sm:p-5">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><label htmlFor="message-search-query" className="text-sm font-medium">Search in workspace</label><select aria-label="Workspace to search" value={activeWorkspaceId || ""} onChange={(event) => selectWorkspace(event.target.value)} className="max-w-full rounded-lg border border-[#E4E4EC] bg-white px-3 py-2 text-sm dark:border-[#34353F] dark:bg-[#101116]">{workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></div>
-          <div className="relative"><Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#92939E]" /><input id="message-search-query" autoFocus value={query} onChange={(event) => setQuery(event.target.value)} maxLength={100} placeholder={`Search messages in ${activeWorkspace?.name || "workspace"}…`} className="w-full rounded-xl border border-[#E4E4EC] bg-[#FAFAFC] py-3 pl-10 pr-4 text-sm outline-none transition focus:border-[#8980FF] focus:ring-2 focus:ring-[#6258E8]/10 dark:border-[#34353F] dark:bg-[#101116] dark:text-[#C6C6D0]" /></div>
+          <div className="relative"><Search size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#92939E]" /><input id="message-search-query" autoFocus value={query} onChange={(event) => setSearchParams((previous) => { const next = new URLSearchParams(previous); const value = event.target.value; if (value) next.set("q", value); else next.delete("q"); return next; }, { replace: true })} maxLength={100} placeholder={`Search messages in ${activeWorkspace?.name || "workspace"}…`} className="w-full rounded-xl border border-[#E4E4EC] bg-[#FAFAFC] py-3 pl-10 pr-4 text-sm outline-none transition focus:border-[#8980FF] focus:ring-2 focus:ring-[#6258E8]/10 dark:border-[#34353F] dark:bg-[#101116] dark:text-[#C6C6D0]" /></div>
           <p className="mt-2 text-xs text-[#92939E]">Enter at least 2 characters. Results are limited to messages you can access.</p>
         </section>
 

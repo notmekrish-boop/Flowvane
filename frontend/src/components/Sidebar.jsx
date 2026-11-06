@@ -20,6 +20,8 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useWorkspace } from "../context/WorkspaceContext";
 
+const SIDEBAR_STORAGE_KEY = "taskpilot-sidebar-collapsed-v2";
+
 const menuItems = [
   { name: "Dashboard", icon: LayoutDashboard, path: "/" },
   { name: "Projects", icon: FolderKanban, path: "/projects" },
@@ -39,7 +41,7 @@ function Sidebar() {
   const { activeWorkspace, activeWorkspaceId, workspaces, selectWorkspace } = useWorkspace();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(
-    () => localStorage.getItem("taskpilot-sidebar-collapsed") === "true",
+    () => localStorage.getItem(SIDEBAR_STORAGE_KEY) !== "false",
   );
 
   useEffect(() => {
@@ -49,7 +51,7 @@ function Sidebar() {
   function toggleCollapsed() {
     setCollapsed((previous) => {
       const next = !previous;
-      localStorage.setItem("taskpilot-sidebar-collapsed", String(next));
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
       document.documentElement.dataset.sidebar = next ? "collapsed" : "expanded";
       return next;
     });

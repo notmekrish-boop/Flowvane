@@ -268,6 +268,11 @@ html.dark .focus\:ring-blue-500:focus { --tw-ring-color: var(--fv-accent); }
 .dashboard-focus-panel a:hover { text-decoration: underline; text-underline-offset: 3px; }
 .dashboard-error { padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--fv-danger) 38%, transparent); border-radius: 10px; color: var(--fv-danger); background: color-mix(in srgb, var(--fv-danger) 9%, transparent); font-size: 12px; }
 
+.notes-linked-diagrams { border-color: var(--fv-border); background-color: var(--fv-surface-raised); }
+.notes-linked-diagrams > span { color: var(--fv-text-secondary); }
+.notes-linked-diagrams button { color: var(--fv-accent-text); transition: color 160ms ease, background-color 160ms ease; }
+.notes-linked-diagrams button:hover { background-color: var(--fv-accent-soft); }
+
 html.dark .dashboard-focus-icon { color: #181207; }
 
 @media (max-width: 1280px) {
@@ -454,6 +459,66 @@ html:not(.dark) [class~="text-[#70717D]"] { color: var(--fv-text-muted) !importa
 html:not(.dark) [class~="text-[#686878]"],
 html:not(.dark) [class~="text-[#555565]"],
 html:not(.dark) [class~="text-[#555660]"] { color: var(--fv-text-secondary) !important; }
+
+/* Dashboard cards each get a small visual cue that reflects their content. */
+.dashboard-stat {
+  position: relative;
+  z-index: 0;
+  transition: transform 180ms cubic-bezier(.2, .8, .2, 1), background-color 180ms ease, box-shadow 180ms ease;
+}
+.dashboard-panel {
+  transition: transform 200ms cubic-bezier(.2, .8, .2, 1), border-color 180ms ease, box-shadow 200ms ease, background-color 180ms ease;
+}
+.dashboard-task-panel { background-color: color-mix(in srgb, var(--fv-surface) 95%, var(--fv-accent)); }
+.dashboard-priority-panel { background-color: var(--fv-surface-raised); }
+.dashboard-activity-panel { background-color: color-mix(in srgb, var(--fv-surface) 97%, var(--fv-success)); }
+.dashboard-deadline-panel { background-color: color-mix(in srgb, var(--fv-surface) 96%, var(--fv-warning)); }
+.dashboard-team-panel { background-color: color-mix(in srgb, var(--fv-surface) 98%, var(--fv-success)); }
+.dashboard-focus-panel { transition: transform 200ms cubic-bezier(.2, .8, .2, 1), border-color 180ms ease, box-shadow 200ms ease; }
+.dashboard-focus-icon { transition: transform 220ms cubic-bezier(.2, .8, .2, 1), background-color 180ms ease; }
+.dashboard-task-list li,
+.dashboard-upcoming-list li,
+.dashboard-team-list li,
+.dashboard-recent-row {
+  border-radius: 9px;
+  transition: transform 160ms ease, background-color 160ms ease, padding-inline 160ms ease;
+}
+.dashboard-priority .dashboard-meter > span { transition: width 420ms cubic-bezier(.2, .8, .2, 1); }
+.dashboard-project-row { border-radius: 10px; transition: transform 180ms ease, background-color 180ms ease; }
+.dashboard-project-mark { transition: transform 180ms ease, border-radius 180ms ease; }
+.dashboard-chart-bars span { transform-origin: bottom; transition: transform 180ms ease, filter 180ms ease; }
+
+@media (hover: hover) {
+  .dashboard-stat:hover, .dashboard-stat:focus-visible {
+    z-index: 1;
+    transform: translateY(-2px);
+    background: var(--fv-surface-raised);
+    box-shadow: 0 8px 16px -12px color-mix(in srgb, var(--fv-accent) 65%, transparent);
+  }
+  .dashboard-panel:hover, .dashboard-panel:focus-within {
+    transform: translateY(-2px);
+    border-color: color-mix(in srgb, var(--fv-accent) 34%, var(--fv-border));
+    box-shadow: 0 14px 24px -22px color-mix(in srgb, var(--fv-accent) 58%, transparent);
+  }
+  .dashboard-task-list li:hover,
+  .dashboard-upcoming-list li:hover,
+  .dashboard-team-list li:hover,
+  .dashboard-recent-row:hover {
+    padding-inline: 6px;
+    background: color-mix(in srgb, var(--fv-accent) 7%, transparent);
+  }
+  .dashboard-project-row:hover { transform: translateX(3px); background: color-mix(in srgb, var(--fv-accent) 6%, transparent); }
+  .dashboard-project-row:hover .dashboard-project-mark { transform: rotate(-4deg) scale(1.06); border-radius: 12px 8px 12px 8px; }
+  .dashboard-chart-day:hover .dashboard-chart-bars span { transform: scaleY(1.06); filter: saturate(1.15); }
+  .dashboard-team-list li:hover .dashboard-avatar { transform: scale(1.08); }
+  .dashboard-focus-panel:hover, .dashboard-focus-panel:focus-within {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--fv-accent) 56%, var(--fv-border));
+    box-shadow: 0 14px 24px -18px color-mix(in srgb, var(--fv-accent) 55%, transparent);
+  }
+  .dashboard-focus-panel:hover .dashboard-focus-icon,
+  .dashboard-focus-panel:focus-within .dashboard-focus-icon { transform: rotate(-7deg) scale(1.08); }
+}
 
 /* The data grid gets room to breathe, with 12px as its smallest text. */
 .dashboard-page { gap: 20px; padding-top: 30px; }
