@@ -2,7 +2,11 @@
 
 **Flowvane** is a collaborative project and task workspace built from the TaskPilot AI project. It brings project planning, team coordination, shared notes, diagrams, and workspace-aware AI assistance into one app.
 
-The interface supports light and true-black dark themes, a collapsible navigation rail, and a responsive project dashboard. The app is a portfolio project; a hosted production environment has not been configured yet.
+The interface supports light and true-black dark themes, a collapsible navigation rail, and a responsive project dashboard. Flowvane is deployed as a free-tier personal portfolio project.
+
+**Live app:** [flowvane.vercel.app](https://flowvane.vercel.app) · **API health:** [flowvane-api.onrender.com/api/health/ready](https://flowvane-api.onrender.com/api/health/ready)
+
+The production stack uses Vercel for the frontend, Render for the API, and Neon for PostgreSQL. The production database starts separately from local development data; create an account in the live app to use it. Render's free API service may take around a minute to wake after a period without traffic.
 
 ## What it does
 
@@ -33,7 +37,7 @@ From the repository root in PowerShell:
 Copy-Item backend/.env.example backend/.env
 ```
 
-Set `DATABASE_URL` to your PostgreSQL database and replace `JWT_SECRET` with a long random value. `GEMINI_API_KEY` is optional and belongs only in `backend/.env`; do not put it in the frontend or commit it.
+Set `DATABASE_URL` to your PostgreSQL database and replace `JWT_SECRET` with a long random value. `DIRECT_URL` is optional for local development and can point to a direct database connection for Prisma migrations. `GEMINI_API_KEY` is optional and belongs only in `backend/.env`; do not put it in the frontend or commit it.
 
 ### 2. Install, migrate, and start the API
 
@@ -79,13 +83,14 @@ The backup command requires PostgreSQL's `pg_dump` and `pg_restore` on `PATH` (o
 | Variable | Where | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | Backend | PostgreSQL connection string |
+| `DIRECT_URL` | Backend | Optional direct PostgreSQL connection for Prisma migrations; defaults to `DATABASE_URL` |
 | `JWT_SECRET` | Backend | Signs authentication tokens; use a strong private value |
 | `FRONTEND_URL` | Backend | Exact browser origin allowed by CORS |
 | `GEMINI_API_KEY` | Backend | Enables AI features; optional |
 | `TRUST_PROXY_HOPS` | Backend | Number of trusted reverse-proxy hops; defaults to `0` |
 | `VITE_API_URL` | Frontend | Optional API URL override; this value is public in the built app |
 
-See [deployment preparation](docs/DEPLOYMENT.md) for reverse-proxy, hosting, and production configuration notes, and [operations](docs/OPERATIONS.md) for database backup and recovery guidance.
+See [deployment notes](docs/DEPLOYMENT.md) for provider configuration and [operations](docs/OPERATIONS.md) for database backup and recovery guidance. Keep real credentials in local environment files or the hosting provider's private environment settings. The committed `.env.example` files contain placeholders only.
 
 ## Repository layout
 
@@ -97,7 +102,7 @@ docs/          Deployment preparation and operations guidance
 
 ## Current release status
 
-- Local development and production frontend builds are configured.
-- PostgreSQL migrations and health endpoints are included.
-- No production hosting provider, public demo, production domain, or hosted database is configured in this repository.
+- The frontend is live at [flowvane.vercel.app](https://flowvane.vercel.app), with the API hosted on Render and PostgreSQL on Neon.
+- PostgreSQL migrations and liveness/readiness health endpoints are included.
+- Production uses a separate database from local development; local records are not automatically copied to production.
 - The backend package does not yet define an automated test suite.

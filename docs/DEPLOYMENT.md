@@ -52,6 +52,8 @@ Publish `frontend/dist` with a static host configured for SPA fallback to `index
 
 The Node service exposes `GET /api/health` for liveness and `GET /api/health/ready` for database readiness. Configure the hosting provider to restart the backend after a non-zero exit and use the readiness endpoint for traffic checks.
 
-## Still required for production
+## Current deployment
 
-The Render Blueprint has not been applied, and the Vercel project/domain, Neon database, production API URL, external log retention, and alerting integration are not configured. The local backup and recovery procedure is documented in [OPERATIONS.md](./OPERATIONS.md); keep an export of important data because this free stack does not provide the same guarantees as a paid production setup.
+The live portfolio deployment uses Vercel for the frontend, Render for the API, and Neon for PostgreSQL. The public app is [flowvane.vercel.app](https://flowvane.vercel.app); the API is [flowvane-api.onrender.com](https://flowvane-api.onrender.com). Keep credentials in each provider's private environment settings. Do not commit local `.env` files or production connection strings. The production database is separate from local development data, and local records are not automatically migrated.
+
+This is a free personal-project deployment, so availability and performance depend on provider limits and may include a cold start. The local backup and recovery procedure is documented in [OPERATIONS.md](./OPERATIONS.md); keep an export of important data.
